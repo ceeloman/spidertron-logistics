@@ -41,8 +41,9 @@ data:extend{
 	{
 		type = 'item',
 		name = 'spidertron-logistic-beacon',
-		icon = '__spidertron-logistics__/graphics/icon/spidertron-logistic-beacon.png',
+		icon = '__spidertron-logistics__/graphics/new/graphics/radar.png',
 		icon_size = 64,
+		icon_mipmaps = 4,
 		stack_size = 50,
 		place_result = 'spidertron-logistic-beacon',
 		order = 'b[personal-transport]-c[spidertron]-c[beacon]',
@@ -61,33 +62,35 @@ data:extend{
 		picture = {layers = {
 			{
 				filename = '__spidertron-logistics__/graphics/entity/spidertron-provider-chest.png',
+				priority = 'extra-high',
+				width = 104,
 				height = 100,
+				scale = 0.6,
 				hr_version = {
 					filename = '__spidertron-logistics__/graphics/entity/hr-spidertron-provider-chest.png',
+					width = 207,
 					height = 199,
 					priority = 'high',
-					scale = 0.5,
-					width = 207
+					scale = 0.3,
 				},
-				priority = 'high',
-				width = 104,
 			},
 			{
 				draw_as_shadow = true,
 				filename = '__spidertron-logistics__/graphics/entity/shadow.png',
+				width = 138,
 				height = 75,
+				scale = 0.6,
 				hr_version = {
 					draw_as_shadow = true,
 					filename = '__spidertron-logistics__/graphics/entity/hr-shadow.png',
+					width = 277,
 					height = 149,
 					priority = 'high',
-					scale = 0.5,
+					scale = 0.3,
 					shift = {0.5625, 0.5},
-					width = 277,
 				},
 				priority = 'high',
-				shift = {0.5625, 0.5},
-				width = 138,
+				shift = {0.3125, 0.375},
 			},
 		}},
 		circuit_connector_sprites = circuit_connections.circuit_connector_sprites,
@@ -105,8 +108,8 @@ data:extend{
 			filename = '__base__/sound/metallic-chest-open.ogg',
 			volume = 0.6
 		},
-		collision_box = {{-1.4, -1.4}, {1.4, 1.4}},
-		selection_box = {{-1.5, -1.5}, {1.5, 1.5}},
+		collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
+		selection_box = {{-1, -1}, {1, 1}},
 		flags = {'placeable-neutral', 'player-creation'},
 		se_allow_in_space = true
 	},
@@ -119,33 +122,35 @@ data:extend{
 		picture = {layers = {
 			{
 				filename = '__spidertron-logistics__/graphics/entity/spidertron-requester-chest.png',
+				priority = 'extra-high',
+				width = 104,
 				height = 100,
+				scale = 0.6,
 				hr_version = {
 					filename = '__spidertron-logistics__/graphics/entity/hr-spidertron-requester-chest.png',
+					width = 207,
 					height = 199,
 					priority = 'high',
-					scale = 0.5,
-					width = 207
+					scale = 0.3,
 				},
-				priority = 'high',
-				width = 104,
 			},
 			{
 				draw_as_shadow = true,
 				filename = '__spidertron-logistics__/graphics/entity/shadow.png',
+				width = 138,
 				height = 75,
+				scale = 0.6,
 				hr_version = {
 					draw_as_shadow = true,
 					filename = '__spidertron-logistics__/graphics/entity/hr-shadow.png',
+					width = 277,
 					height = 149,
 					priority = 'high',
-					scale = 0.5,
+					scale = 0.3,
 					shift = {0.5625, 0.5},
-					width = 277,
 				},
 				priority = 'high',
-				shift = {0.5625, 0.5},
-				width = 138,
+				shift = {0.3125, 0.375},
 			},
 		}},
 		circuit_connector_sprites = circuit_connections.circuit_connector_sprites,
@@ -163,8 +168,8 @@ data:extend{
 			filename = '__base__/sound/metallic-chest-open.ogg',
 			volume = 0.6
 		},
-		collision_box = {{-1.4, -1.4}, {1.4, 1.4}},
-		selection_box = {{-1.5, -1.5}, {1.5, 1.5}},
+		collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
+		selection_box = {{-1, -1}, {1, 1}},
 		flags = {'placeable-neutral', 'player-creation'},
 		se_allow_in_space = true
 	},
@@ -275,6 +280,9 @@ data:extend{
 	{
 		name = 'spidertron-logistic-beacon',
 		type = 'roboport',
+		icon = '__spidertron-logistics__/graphics/new/graphics/radar.png',
+		icon_size = 64,
+		icon_mipmaps = 4,
 		energy_source = {
 			type = 'electric',
 			usage_priority = 'secondary-input',
@@ -284,39 +292,100 @@ data:extend{
 		recharge_minimum = '400kW',
 		robot_slots_count = 0,
 		material_slots_count = 0,
+		collision_box = {{-0.8, -0.8}, {0.8, 0.8}},
+		selection_box = {{-1, -1}, {1, 1}},
 		base = {
-			filename = '__base__/graphics/entity/beacon/beacon-top.png',
-			hr_version = {
-				filename = '__base__/graphics/entity/beacon/hr-beacon-top.png',
-				scale = 0.5,
-				shift = {0.09375, -0.59375},
-				height = 140,
-				width = 96
-			},
-			shift = {0.09375, -0.59375},
-			height = 70,
-			width = 48
+			filename = '__spidertron-logistics__/graphics/new/graphics/transparent.png',
+			width = 1,
+			height = 1
 		},
-		base_patch = nothing,
-		base_animation = nothing,
-		door_animation_up = nothing,
-		door_animation_down = nothing,
-		recharging_animation = nothing,
+		base_animation = {
+			layers = {
+				{
+					filename = '__spidertron-logistics__/graphics/new/graphics/hr-radar-red.png',
+					priority = 'medium',
+					width = 196,
+					height = 254,
+					frame_count = 64,
+					line_length = 8,
+					shift = util.by_pixel(1, -13),
+					scale = 0.335,
+					direction_count = 1,
+					animation_speed = 0.5,
+					hr_version = {
+						filename = '__spidertron-logistics__/graphics/new/graphics/hr-radar-red.png',
+						priority = 'medium',
+						width = 196,
+						height = 254,
+						frame_count = 64,
+						line_length = 8,
+						shift = util.by_pixel(1, -13),
+						scale = 0.335,
+						direction_count = 1,
+						animation_speed = 0.5
+					}
+				},
+				{
+					filename = '__base__/graphics/entity/radar/radar-shadow.png',
+					priority = 'medium',
+					width = 336,
+					height = 170,
+					frame_count = 64,
+					line_length = 8,
+					draw_as_shadow = true,
+					shift = util.by_pixel(26, 2),
+					scale = 0.335,
+					hr_version = {
+						filename = '__base__/graphics/entity/radar/hr-radar-shadow.png',
+						priority = 'medium',
+						width = 336,
+						height = 170,
+						frame_count = 64,
+						line_length = 8,
+						draw_as_shadow = true,
+						shift = util.by_pixel(26, 2),
+						scale = 0.335
+					}
+				}
+			}
+		},
+		base_patch = {
+			filename = '__spidertron-logistics__/graphics/new/graphics/transparent.png',
+			width = 1,
+			height = 1
+		},
+		door_animation_up = {
+			filename = '__spidertron-logistics__/graphics/new/graphics/transparent.png',
+			width = 1,
+			height = 1
+		},
+		door_animation_down = {
+			filename = '__spidertron-logistics__/graphics/new/graphics/transparent.png',
+			width = 1,
+			height = 1
+		},
+		recharging_animation = {
+			filename = '__spidertron-logistics__/graphics/new/graphics/transparent.png',
+			width = 1,
+			height = 1
+		},
 		request_to_open_door_timeout = 0,
 		spawn_and_station_height = 0,
 		charge_approach_distance = 0,
-		logistics_radius = 9.5,
-		construction_radius = 0,
+		logistics_radius = 8.5,
+		construction_radius = 20,
 		charging_energy = '0W',
+		rotation_speed = 0.01,
 		max_health = 100,
 		minable = {mining_time = 1, result = 'spidertron-logistic-beacon'},
 		corpse = 'beacon-remnants',
-		collision_box = {{-0.7, -0.7}, {0.7, 0.7}},
-		selection_box = {{-1, -1}, {1, 1}},
 		flags = {'placeable-neutral', 'player-creation'},
-		icon = '__spidertron-logistics__/graphics/icon/spidertron-logistic-beacon.png',
-		icon_size = 64,
-		logistics_connection_distance = 18
+		logistics_connection_distance = 10000,
+		charging_station_shift = nil,
+		charging_station_count = 0,
+		charging_distance = nil,
+		charging_offsets = nil,
+		charging_threshold_distance = nil
 	}
 }
 
