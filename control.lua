@@ -1,780 +1,367 @@
-local update_cooldown = 4 * 60
+-- Main control file for spidertron logistics mod
+-- Modularized structure with separate modules for different concerns
 
-local insert = table.insert
-local sort = table.sort
-local remove = table.remove
-local random = math.random
-local sqrt = math.sqrt
+-- Load modules
+local constants = require('lib.constants')
+local utils = require('lib.utils')
+local beacon_assignment = require('lib.beacon_assignment')
+local registration = require('lib.registration')
+local gui = require('lib.gui')
+local logistics = require('lib.logistics')
+local journey = require('lib.journey')
+local rendering = require('lib.rendering')
+local debug_commands = require('lib.commands')
+
+-- Local references for performance
 local min = math.min
-local max = math.max
-local match = string.match
-local tonumber = tonumber
 local tostring = tostring
 
-local draw_sprite = rendering.draw_sprite
-local draw_text = rendering.draw_text
-
-local idle = 1
-local picking_up = 2
-local dropping_off = 3
-
-local spidertron_logistic_beacon = 'spidertron-logistic-beacon'
-local spidertron_requester_chest = 'spidertron-requester-chest'
-local spidertron_provider_chest = 'spidertron-provider-chest'
-local spidertron_logistic_controller = 'spidertron-logistic-controller'
-
-local function is_spidertron_force(force)
-	if storage.held_planner_forces[force.name] then return true end
-	return match(force.name, '(.+)%.spidertron%-logistic%-network$') ~= nil
-end
-
-local function spidertron_network_force(base_force)
-	if is_spidertron_force(base_force) then return base_force end
-
-	local force_name = base_force.name .. '.spidertron-logistic-network'
-	local force = game.forces[force_name]
-	if not force then
-		force = game.create_force(force_name)
-		force.set_friend(base_force, true)
-		force.set_cease_fire(base_force, true)
-		force.disable_research()
-		force.share_chart = true
-		base_force.set_friend(force, true)
-		base_force.set_cease_fire(force, true)
-		base_force.share_chart = true
+-- GUI Event Handlers
+script.on_event(defines.events.on_gui_opened, function(event)
+	-- Close any open item selector modals when opening a new GUI
+	if event.gui_type == defines.gui_type.entity then
+		for _, gui_data in pairs(storage.requester_guis) do
+			gui.close_item_selector_gui(gui_data)
+		end
 	end
-	return force
-end
-
-local planners = {
-	['copy-paste-tool'] = true,
-	['cut-paste-tool'] = true,
-	['blueprint'] = true,
-	['deconstruction-planner'] = true
-}
-
-script.on_event(defines.events.on_player_cursor_stack_changed, function(event)
-	local player = game.get_player(event.player_index)
-	local index = player.index
-	local stack = player.cursor_stack
-	local held_planner = storage.held_planner_forces[player.force.name]
-	local valid_for_read = stack and stack.valid_for_read
 	
-	if not valid_for_read then goto empty_stack end
+	if event.gui_type ~= defines.gui_type.entity then return end
+	local entity = event.entity
+	if entity == nil or not entity.valid then return end
 	
-	if stack.name == spidertron_logistic_beacon then
-		if held_planner then return end
-	
-		if not is_spidertron_force(player.force) then
-			storage.original_forces[index] = player.force
+	-- Handle requester chest GUI
+	if entity.name == constants.spidertron_requester_chest then
+		local player = game.get_player(event.player_index)
+		local requester_data = storage.requesters[entity.unit_number]
+		if not requester_data then return end
+		
+		-- Clean up old GUIs first
+		gui.cleanup_old_guis(event.player_index)
+		
+		-- Migrate old format if needed
+		if not requester_data.requested_items then
+			requester_data.requested_items = {}
+			if requester_data.requested_item then
+				requester_data.requested_items[requester_data.requested_item] = requester_data.request_size or 0
+			end
 		end
 		
-		local force = spidertron_network_force(player.force)
-		
-		for _, technology in pairs(player.force.technologies) do
-			force.technologies[technology.name].researched = technology.researched
-		end
-		
-		player.force = force
+		local gui_data = gui.requester_gui(event.player_index)
+		gui_data.last_opened_requester = requester_data
+		gui.update_requester_gui(gui_data, requester_data)
 		return
-	elseif planners[stack.name] and not held_planner then
-		local spidertron_network_force = spidertron_network_force(player.force)
-		for _, beacon in pairs(storage.beacons) do
-			if beacon.valid and beacon.force == spidertron_network_force then
-				beacon.force = player.force
-			end
-		end
-		storage.held_planner_forces[player.force.name] = true
 	end
-		
-	::empty_stack::
-		
-	if held_planner and not (valid_for_read and planners[stack.name]) then
-		for _, other_player in pairs(game.players) do
-			local cursor = other_player.cursor_stack
-			if other_player.index ~= index and other_player.force == player.force and cursor and cursor.valid_for_read and planners[cursor.name] then
-				goto still_held
-			end
-		end
-		
-		storage.held_planner_forces[player.force.name] = nil
-		local spidertron_network_force = spidertron_network_force(player.force)
-		for _, beacon in pairs(storage.beacons) do
-			if beacon.valid and beacon.force == player.force and beacon.to_be_deconstructed() == false then
-				beacon.force = spidertron_network_force
-			end
-		end
-	end
-
-	::still_held::
 	
-	local original_force = storage.original_forces[index]
-	if original_force then
-		if original_force.valid and is_spidertron_force(player.force) then
-			--for _, surface in pairs(game.surfaces) do player.force.clear_chart(surface) end
-			player.force = original_force
+	-- Handle spidertron GUI
+	if entity.type == 'spider-vehicle' and entity.prototype.order ~= 'z[programmable]' then
+		local player = game.get_player(event.player_index)
+		if not player then return end
+		
+		local spider_data = storage.spiders[entity.unit_number]
+		if not spider_data then
+			-- Register spider if not already registered
+			registration.register_spider(entity)
+			spider_data = storage.spiders[entity.unit_number]
 		end
-		storage.original_forces[index] = nil
+		if spider_data then
+			-- Ensure active field exists
+			if spider_data.active == nil then
+				spider_data.active = false
+			end
+			-- Add toggle button
+			gui.add_spidertron_toggle_button(player, entity)
+		end
+		return
 	end
 end)
 
-script.on_event(defines.events.on_cancelled_deconstruction, function(event)
-	event.entity.force = spidertron_network_force(event.entity.force)
-end, {{filter = 'name', name = spidertron_logistic_beacon}})
-
-local function spidertron_network(entity)
-	if entity.name == spidertron_logistic_beacon then
-		return entity.logistic_network
+script.on_event(defines.events.on_gui_closed, function(event)
+	if event.gui_type == defines.gui_type.entity then
+		local player = game.get_player(event.player_index)
+		if player and player.valid then
+			-- Clean up spidertron toggle button when GUI is closed
+			if player.gui.relative["spidertron_logistics_toggle_frame"] then
+				player.gui.relative["spidertron_logistics_toggle_frame"].destroy()
+			end
+		end
 	end
-	
-	local surface = entity.surface
-	local force = spidertron_network_force(entity.force)
-	local position = entity.position
-	local x, y = position.x, position.y
-	local range = 9 - 1
-	local area = {{x - range, y - range}, {x + range, y + range}}
-	
-	if surface.count_entities_filtered{area = area, name = spidertron_logistic_beacon, force = force, to_be_deconstructed = false} == 0 then
-		return nil
-	end
-	
-	return surface.find_logistic_network_by_position(position, force)
-end
+end)
 
-local function random_order(l)
-	local order = {}
-	local i = 1
-	for _, elem in pairs(l) do
-		insert(order, random(1, i), elem)
-		i = i + 1
-	end
+script.on_event(defines.events.on_gui_switch_state_changed, function(event)
+	local element = event.element
+	if not element or not element.valid then return end
 	
-	return ipairs(order)
-end
-
-local function index_by_object(t, o)
-	for k, v in pairs(t) do
-		if k == o then return v end
-	end
-end
-
-local function end_journey(unit_number, find_beacon)
-	local spider_data = storage.spiders[unit_number]
-	if not spider_data then return end
-	if spider_data.status == idle then return end
-	local spider = spider_data.entity
-	
-	local item = spider_data.payload_item
-	local item_count = spider_data.payload_item_count
-	
-	local beacon_starting_point = spider
-	
-	local requester = spider_data.requester_target
-	if requester and requester.valid then
-		beacon_starting_point = requester
+	-- Handle spidertron toggle switch
+	if element.name == "spidertron_logistics_toggle_button" then
+		local player = game.get_player(event.player_index)
+		if not player then return end
 		
-		local requester_data = storage.requesters[requester.unit_number]
-		if requester_data then
-			requester_data.incoming_items[item] = requester_data.incoming_items[item] - item_count
+		local vehicle = player.opened
+		if vehicle and vehicle.valid and vehicle.type == 'spider-vehicle' then
+			local spider_data = storage.spiders[vehicle.unit_number]
+			if spider_data then
+				-- Update active state based on switch position
+				-- "left" = active, "right" = inactive
+				spider_data.active = (element.switch_state == "left")
+				return
+			end
 		end
 	end
+end)
+
+script.on_event(defines.events.on_gui_elem_changed, function(event)
+	local element = event.element
+	if not element or not element.valid then return end
 	
-	if spider_data.status == picking_up then
-		local provider = spider_data.provider_target
-		if provider and provider.valid then
-			beacon_starting_point = provider
-			
-			local allocated_items = storage.providers[provider.unit_number].allocated_items
-			allocated_items[item] = allocated_items[item] - item_count
-			if allocated_items[item] == 0 then allocated_items[item] = nil end
+	-- Handle item chooser selection
+	if element.name == 'spidertron_item_chooser' then
+		for _, gui_data in pairs(storage.requester_guis) do
+			if gui_data and gui_data.item_selector_item_chooser and gui_data.item_selector_item_chooser == element then
+				gui_data.item_selector_selected_item = element.elem_value
+				return
+			end
 		end
 	end
+end)
+
+script.on_event(defines.events.on_gui_text_changed, function(event)
+	-- Not used with choose-elem-button approach
+end)
+
+script.on_event(defines.events.on_gui_value_changed, function(event)
+	local element = event.element
+	if not element or not element.valid then return end
 	
-	if find_beacon and spider.valid and spider.get_driver() == nil then
-		local current_network = spidertron_network(beacon_starting_point)
-		if current_network then
-			for _, beacon in random_order(spider.surface.find_entities_filtered{name = spidertron_logistic_beacon, position = spider.position, radius = 12}) do
-				if beacon.to_be_deconstructed() == false and spidertron_network(beacon) == current_network then
-					spider.add_autopilot_destination(beacon.position)
+	-- Handle quantity slider changes in item selector
+	if element.name == 'spidertron_quantity_slider' then
+		for _, gui_data in pairs(storage.requester_guis) do
+			if gui_data and gui_data.item_selector_slider and gui_data.item_selector_slider == element then
+				local value = math.floor(element.slider_value)
+				if gui_data.item_selector_quantity_label and gui_data.item_selector_quantity_label.valid then
+					gui_data.item_selector_quantity_label.caption = tostring(value)
+				end
+				return
+			end
+		end
+	end
+end)
+
+script.on_event(defines.events.on_gui_click, function(event)
+	local element = event.element
+	if not element or not element.valid then return end
+	
+	local player = game.get_player(event.player_index)
+	local player_index = event.player_index
+	
+	-- Handle item selector modal buttons
+	for _, gui_data in pairs(storage.requester_guis) do
+		if gui_data and gui_data.item_selector_gui and gui_data.item_selector_gui.valid then
+			-- Check if clicked element is in the modal
+			local clicked_in_modal = false
+			local parent = element
+			while parent do
+				if parent == gui_data.item_selector_gui then
+					clicked_in_modal = true
 					break
+				end
+				parent = parent.parent
+			end
+			
+			if clicked_in_modal then
+				-- Handle confirm button
+				if element.name == 'spidertron_confirm_request' then
+					local slot_index = gui_data.item_selector_slot_index
+					local selected_item = gui_data.item_selector_selected_item
+					local quantity = 0
+					
+					if gui_data.item_selector_slider and gui_data.item_selector_slider.valid then
+						quantity = math.floor(gui_data.item_selector_slider.slider_value)
+					end
+					
+					if selected_item and quantity > 0 and gui_data.last_opened_requester then
+						local requester_data = gui_data.last_opened_requester
+						if not requester_data.requested_items then
+							requester_data.requested_items = {}
+						end
+						
+						-- Remove old item from this slot position
+						local item_list = {}
+						for item_name, count in pairs(requester_data.requested_items) do
+							if count > 0 and item_name and item_name ~= '' then
+								table.insert(item_list, {name = item_name, count = count})
+							end
+						end
+						table.sort(item_list, function(a, b) return a.name < b.name end)
+						
+						if slot_index <= #item_list then
+							requester_data.requested_items[item_list[slot_index].name] = nil
+						end
+						
+						-- Add new item
+						requester_data.requested_items[selected_item] = quantity
+						
+						-- Update GUI
+						gui.update_requester_gui(gui_data, requester_data)
+					end
+					
+					gui.close_item_selector_gui(gui_data)
+					return
+				end
+				
+				-- Handle cancel button
+				if element.name == 'spidertron_cancel_request' then
+					gui.close_item_selector_gui(gui_data)
+					return
 				end
 			end
 		end
 	end
 	
-	spider_data.provider_target = nil
-	spider_data.requester_target = nil
-	spider_data.payload_item = nil
-	spider_data.payload_item_count = 0
-	spider_data.status = idle
-end
-
-local function register_provider(provider)
-	storage.providers[provider.unit_number] = {
-		entity = provider,
-		allocated_items = {}
-	}
-	script.register_on_object_destroyed(provider)
-end
-
-local function register_requester(requester, tags)
-	storage.requesters[requester.unit_number] = {
-		entity = requester,
-		requested_item = tags and tags.requested_item or nil,
-		request_size = tags and tags.request_size or 0,
-		incoming_items = {}
-	}
-	script.register_on_object_destroyed(requester)
-end
-
-local function register_spider(spider)
-	storage.spiders[spider.unit_number] = {
-		entity = spider,
-		status = idle,
-		requester_target = nil,
-		provider_target = nil,
-		payload_item = nil,
-		payload_item_count = 0
-	}
-	script.register_on_object_destroyed(spider)
-end
-
-local function register_beacon(beacon)
-	storage.beacons[beacon.unit_number] = beacon
-	script.register_on_object_destroyed(beacon)
-	beacon.force = spidertron_network_force(beacon.force)
-	beacon.backer_name = ''
-end
-
-local function stack_size(item)
-	if not item or item == '' or type(item) ~= 'string' then return 1 end
-	local success, prototype = pcall(function() return game.item_prototypes[item] end)
-	if not success or not prototype then return 1 end
-	return prototype.stack_size
-end
-
-local function inventory_size(entity)
-	return entity.get_inventory(defines.inventory.chest).get_bar() - 1
-end
-
-local function requester_gui(player_index)
-	local gui = storage.requester_guis[player_index]
-	if gui then return gui end
-	
-	local player = game.get_player(player_index)
-	
-	local frame = player.gui.relative.add{
-		type = 'frame',
-		anchor = {
-			gui = defines.relative_gui_type.container_gui,
-			position = defines.relative_gui_position.right,
-			name = spidertron_requester_chest
-		},
-		caption = {'description.logistic-request'}
-	}.add{
-		type = 'frame',
-		style = 'inside_shallow_frame_with_padding'
-	}
-	
-	local choose_elem_button = frame.add{
-		type = 'choose-elem-button',
-		elem_type = 'item'
-	}
-	
-	local textfield = frame.add{
-		type = 'textfield',
-		numeric = true,
-		allow_decimal = false,
-		allow_negative = false,
-		text = '0',
-		style = 'slider_value_textfield'
-	}
-	
-	gui = {
-		choose_elem_button = choose_elem_button,
-		textfield = textfield,
-		last_opened_requester = nil
-	}
-	
-	storage.requester_guis[player_index] = gui
-	return gui
-end
-
-script.on_event(defines.events.on_gui_opened, function(event)
-	if event.gui_type ~= defines.gui_type.entity then return end
-	local entity = event.entity
-	if entity == nil or not entity.valid then return end
-	if entity.name ~= spidertron_requester_chest then return end
-	
-	local player = game.get_player(event.player_index)
-	local requester_data = storage.requesters[entity.unit_number]
-	local gui = requester_gui(event.player_index)
-	
-	gui.choose_elem_button.elem_value = requester_data.requested_item
-	gui.textfield.text = tostring(requester_data.request_size)
-	gui.last_opened_requester = requester_data
-end)
-
-script.on_event(defines.events.on_gui_elem_changed, function(event)
-	local element = event.element
-	local player = game.get_player(event.player_index)
-	local gui = requester_gui(event.player_index)
-	local choose_elem_button = gui.choose_elem_button
-	
-	if choose_elem_button.index ~= element.index then return end
-	
-	local requester_data = gui.last_opened_requester
-	local item = element.elem_value
-	requester_data.requested_item = item
-	
-	if item == nil then
-		requester_data.request_size = 0
-		gui.textfield.text = '0'
-		return
-	end
-	
-	if not requester_data.entity or not requester_data.entity.valid then return end
-	local storage_space = stack_size(item) * inventory_size(requester_data.entity)
-	if requester_data.request_size > storage_space then
-		requester_data.request_size = storage_space
-		gui.textfield.text = tostring(storage_space)
-	end
-end)
-
-script.on_event(defines.events.on_gui_text_changed, function(event)
-	local element = event.element
-	local player = game.get_player(event.player_index)
-	local gui = requester_gui(event.player_index)
-	local textfield = gui.textfield
-	
-	if textfield.index ~= element.index then return end
-	
-	local text = event.text
-	if text == '' then text = '0' end
-	text = tonumber(text)
-	
-	local requester_data = gui.last_opened_requester
-	if not requester_data or not requester_data.entity or not requester_data.entity.valid then return end
-	if requester_data.requested_item then
-		local storage_space = stack_size(requester_data.requested_item) * inventory_size(requester_data.entity)
-		if text > storage_space then
-			text = storage_space
+	-- Handle slot button clicks (open item selector modal)
+	for _, gui_data in pairs(storage.requester_guis) do
+		if gui_data and gui_data.buttons then
+			for i, button_data in ipairs(gui_data.buttons) do
+				if button_data and button_data.slot_button and button_data.slot_button.valid and button_data.slot_button == element then
+					gui.open_item_selector_gui(player_index, i, gui_data, gui_data.last_opened_requester)
+					return
+				end
+			end
 		end
 	end
-	
-	element.text = tostring(text)
-	requester_data.request_size = text
 end)
-
-local function count_controllers(grid)
-	if not grid then return 0 end
-	local count = 0
-	for _, equipment in ipairs(grid.equipment) do
-		if equipment.name == spidertron_logistic_controller then
-			count = count + 1
-		end
-	end
-	return count
-end
-
-local function register_spider_safe(entity)
-	local grid = entity.grid
-	if not grid then return end
-	local controller_count = count_controllers(grid)
-	if controller_count == 0 then return end
-	
-	register_spider(entity)
-	
-	if controller_count > 1 then
-		grid.inhibit_movement_bonus = true
-		entity.active = false
-	elseif controller_count == 1 then
-		grid.inhibit_movement_bonus = false
-		entity.active = true
-	end
-end
 
 script.on_event(defines.events.on_entity_settings_pasted, function(event)
 	local source, destination = event.source, event.destination
 	
-	if destination.name == spidertron_requester_chest then
+	if destination.name == constants.spidertron_requester_chest then
 		local destination_data = storage.requesters[destination.unit_number]
-		if source.name == spidertron_requester_chest then 
+		if source.name == constants.spidertron_requester_chest then 
 			local source_data = storage.requesters[source.unit_number]
-			destination_data.requested_item = source_data.requested_item
-			destination_data.request_size = source_data.request_size
+			-- Copy requested_items
+			if not destination_data.requested_items then
+				destination_data.requested_items = {}
+			end
+			if source_data.requested_items then
+				-- Deep copy
+				destination_data.requested_items = {}
+				for item, count in pairs(source_data.requested_items) do
+					destination_data.requested_items[item] = count
+				end
+			elseif source_data.requested_item then
+				-- Migrate old format
+				destination_data.requested_items[source_data.requested_item] = source_data.request_size or 0
+			end
 		else
-			destination_data.requested_item = nil
-			destination_data.request_size = 0
+			destination_data.requested_items = {}
 		end
 		
-		local gui = requester_gui(event.player_index)
-		if gui.last_opened_requester == destination_data then
-			gui.choose_elem_button.elem_value = destination_data.requested_item
-			gui.textfield.text = tostring(destination_data.request_size)
+		local gui_data = storage.requester_guis[event.player_index]
+		if gui_data and gui_data.last_opened_requester == destination_data then
+			gui.update_requester_gui(gui_data, destination_data)
 		end
 	elseif destination.type == 'spider-vehicle' and destination.prototype.order ~= 'z[programmable]' then
 		local spider = destination
 		
 		local unit_number = spider.unit_number
 		if storage.spiders[unit_number] then
-			end_journey(unit_number, false)
+			journey.end_journey(unit_number, false)
 			storage.spiders[unit_number] = nil
 		end
 		
-		register_spider_safe(spider)
+		registration.register_spider(spider)
 	end
 end)
 
 script.on_event(defines.events.on_player_driving_changed_state, function(event)
 	local spider = event.entity
 	if spider and spider.get_driver() and storage.spiders[spider.unit_number] then
-		end_journey(spider.unit_number, false)
+		journey.end_journey(spider.unit_number, false)
 	end
 end)
 
 script.on_event(defines.events.on_player_used_spidertron_remote, function(event)
 	local spider = event.vehicle
 	if event.success and storage.spiders[spider.unit_number] then
-		end_journey(spider.unit_number, false)
+		journey.end_journey(spider.unit_number, false)
 	end
 end)
 
-local function draw_no_energy_icon(target, offset)
-	draw_sprite{
-		sprite = 'utility.electricity_icon',
-		x_scale = 0.5,
-		y_scale = 0.5,
-		target = target,
-		surface = target.surface,
-		time_to_live = update_cooldown / 2,
-		target_offset = offset
-	}
-end
-
-local function draw_missing_roboport_icon(target, offset)
-	draw_sprite{
-		sprite = 'utility.too_far_from_roboport_icon',
-		x_scale = 0.5,
-		y_scale = 0.5,
-		target = target,
-		surface = target.surface,
-		time_to_live = update_cooldown / 2,
-		target_offset = offset
-	}
-end
-
-local function draw_deposit_icon(target)
-	local requester_data = storage.requesters[target.unit_number]
-	local old = requester_data.old_icon
-	if old and old.valid then old.destroy() end
+-- Main logistics update loop
+script.on_nth_tick(constants.update_cooldown, function(event)
+	local requests = logistics.requesters()
+	local spiders_list = logistics.spiders()
+	local providers_list = logistics.providers()
 	
-	requester_data.old_icon = draw_sprite{
-		sprite = 'utility.indication_arrow',
-		x_scale = 1.5,
-		y_scale = 1.5,
-		target = target,
-		surface = target.surface,
-		time_to_live = 120,
-		target_offset = {0, -0.75},
-		orientation = 0.5,
-		only_in_alt_mode = true
-	}
-end
-
-local function draw_withdraw_icon(target)
-	local provider_data = storage.providers[target.unit_number]
-	local old = provider_data.old_icon
-	if old and old.valid then old.destroy() end
-	
-	provider_data.old_icon = draw_sprite{
-		sprite = 'utility.indication_arrow',
-		x_scale = 1.5,
-		y_scale = 1.5,
-		target = target,
-		surface = target.surface,
-		time_to_live = 120,
-		target_offset = {0, -0.75},
-		only_in_alt_mode = true
-	}
-end
-
-local function distance(x1, y1, x2, y2)
-	if not x2 and not y2 then
-		x2, y2 = y1.x, y1.y
-		x1, y1 = x1.x, x1.y
-	end
-	return sqrt((x1 - x2) ^ 2 + (y1 - y2) ^ 2)
-end
-
-local function spiders()
-	local valid = {}
-	
-	for _, spider_data in pairs(storage.spiders) do
-		local spider = spider_data.entity
-		if not spider.valid then goto valid end
-		if not spider.active then goto valid end
-		if spider_data.status ~= idle then goto valid end
-		if spider.get_driver() ~= nil then goto valid end
-		
-		local network = spidertron_network(spider)
-		if network == nil then
-			draw_missing_roboport_icon(spider, {0, -1.75})
-			goto valid
+	for network_key, requesters in pairs(requests) do
+		local providers_for_network = providers_list[network_key]
+		if not providers_for_network then 
+			goto next_network 
 		end
 		
-		local grid = spider.grid
-		local found_charged_controller = false
-		for _, equipment in ipairs(grid.equipment) do
-			if equipment.name == spidertron_logistic_controller and equipment.energy == equipment.max_energy then
-				found_charged_controller = true
-				break
-			end
+		local spiders_on_network = spiders_list[network_key]
+		if not spiders_on_network or #spiders_on_network == 0 then 
+			goto next_network 
 		end
 		
-		if found_charged_controller then
-			local in_network = index_by_object(valid, network) or {}
-			valid[network] = in_network
-			valid[network][#in_network + 1] = spider
-		else
-			draw_no_energy_icon(spider, {0, -1.75})
-		end
-		::valid::
-	end
-	
-	return valid
-end
-
-local function requester_sort_function(a, b)
-	local a_filled = a.percentage_filled
-	local b_filled = b.percentage_filled
-	return a_filled == b_filled and a.random_sort_order < b.random_sort_order or a_filled < b_filled
-end
-
-local function requesters()
-	local result = {}
-	
-	for _, requester_data in pairs(storage.requesters) do
-		local requester = requester_data.entity
-		if not requester.valid then goto continue end
-		if requester.to_be_deconstructed() then goto continue end
-		
-		local network = spidertron_network(requester)
-		if network == nil then
-			draw_missing_roboport_icon(requester)
-			goto continue
-		end
-		
-		local item = requester_data.requested_item
-		if not item or not requester.can_insert(item) then goto continue end
-		
-		local incoming = requester_data.incoming_items[item] or 0
-		local request_size = requester_data.request_size
-		local already_had = requester.get_item_count(item)
-		
-		requester_data.real_amount = request_size - incoming - already_had
-		if requester_data.real_amount <= 0 then goto continue end
-		requester_data.percentage_filled = (incoming + already_had) / request_size
-		requester_data.random_sort_order = random()
-		
-		local requesters = index_by_object(result, network)
-		if requesters == nil then
-			result[network] = {requester_data}
-		else
-			requesters[#requesters + 1] = requester_data
-		end
-		
-		::continue::
-	end
-	
-	for _, requesters in pairs(result) do
-		sort(requesters, requester_sort_function)
-	end
-	
-	return result
-end
-
-local function providers()
-	local result = {}
-
-	for _, provider_data in pairs(storage.providers) do
-		local provider = provider_data.entity
-		if not provider.valid then goto continue end
+		for _, item_request in ipairs(requesters) do
+			local item = item_request.requested_item
+			local requester_data = item_request.requester_data
+			if not item then goto next_requester end
 			
-		if provider.to_be_deconstructed() then goto continue end
-		
-		local network = spidertron_network(provider)
-		if not network then
-			draw_missing_roboport_icon(provider)
-			goto continue
-		end
-		
-		local inventory = provider.get_inventory(defines.inventory.chest)
-		local contents = inventory.get_contents()
-		local contains = {}
-		
-		-- Handle Factorio 2.0 ItemWithQualityCounts format
-		if contents then
-			for item_name, count_or_qualities in pairs(contents) do
-				if type(count_or_qualities) == "number" then
-					-- Old format: direct count
-					contains[item_name] = count_or_qualities
-				elseif type(count_or_qualities) == "table" then
-					-- New format: ItemWithQualityCounts - sum all qualities
-					local total = 0
-					for quality, qty in pairs(count_or_qualities) do
-						if type(qty) == "number" then
-							total = total + qty
-						end
-					end
-					contains[item_name] = total
-				end
-			end
-		end
-		
-		if next(contains) == nil then goto continue end
-		provider_data.contains = contains
-		
-		local providers = index_by_object(result, network)
-		if providers == nil then
-			result[network] = {provider_data}
-		else
-			providers[#providers + 1] = provider_data
-		end
-		
-		::continue::
-	end
-	
-	return result
-end
-
-local function assign_spider(spiders, requester_data, provider_data, can_provide)
-	local provider = provider_data.entity
-	if not provider.valid then return false end
-	local item = requester_data.requested_item
-	
-	local position = provider.position
-	local x, y = position.x, position.y
-	local spider
-	local best_distance
-	local spider_index
-	for i, canidate in ipairs(spiders) do
-		if canidate.can_insert(item) then
-			local canidate_position = canidate.position
-			local distance = distance(x, y, canidate_position.x, canidate_position.y)
-			
-			if not spider or best_distance > distance then
-				spider = canidate
-				best_distance = distance
-				spider_index = i
-			end
-		end
-	end
-	if not spider then return false end
-	
-	local spider_data = storage.spiders[spider.unit_number]
-	local amount = requester_data.real_amount
-	
-	if can_provide > amount then can_provide = amount end
-	provider_data.allocated_items[item] = (provider_data.allocated_items[item] or 0) + can_provide
-	requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) + can_provide
-	requester_data.real_amount = amount - can_provide
-	spider_data.status = picking_up
-	spider_data.requester_target = requester_data.entity
-	spider_data.provider_target = provider
-	spider_data.payload_item = item
-	spider_data.payload_item_count = can_provide
-	spider.add_autopilot_destination(provider.position)
-
-	remove(spiders, spider_index)
-	return true
-end
-
-script.on_nth_tick(update_cooldown, function(event)
-	local requests = requesters()
-	local spiders = spiders()
-	local providers = providers()
-	
-	for network, requesters in pairs(requests) do
-		if storage.held_planner_forces[network.force.name] then goto next_network end
-	
-		local providers = index_by_object(providers, network)
-		if not providers then goto next_network end
-		
-		local spiders_on_network = index_by_object(spiders, network)
-		if not spiders_on_network or #spiders_on_network == 0 then goto next_network end
-		
-		for _, requester_data in ipairs(requesters) do
-			local item = requester_data.requested_item
 			local max = 0
 			local best_provider
-			for _, provider_data in ipairs(providers) do
+			for _, provider_data in ipairs(providers_for_network) do
 				local provider = provider_data.entity
-				-- Use get_item_count for accurate count in Factorio 2.0
-				local item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-				local allocated = provider_data.allocated_items[item] or 0
+				if not provider or not provider.valid then goto next_provider end
+				
+				local item_count = 0
+				local allocated = 0
+				
+				if provider_data.is_robot_chest then
+					-- For robot chests, check if item is available in the chest
+					-- We don't track allocated_items for robot chests (robots handle that)
+					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+					allocated = 0  -- Robot chests don't use allocation tracking
+				else
+					-- Custom provider chest logic (existing)
+					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+					allocated = provider_data.allocated_items[item] or 0
+				end
+				
+				-- Only consider providers that actually have the item
+				if item_count <= 0 then goto next_provider end
+				
 				local can_provide = item_count - allocated
-				if can_provide > max then
+				if can_provide > 0 and can_provide > max then
 					max = can_provide
 					best_provider = provider_data
 				end
+				
+				::next_provider::
 			end
 			
-			if best_provider ~= nil then
-				if not assign_spider(spiders_on_network, requester_data, best_provider, max) or #spiders_on_network == 0 then
+			if best_provider ~= nil and max > 0 then
+				-- Create a temporary requester_data-like object for assign_spider
+				local temp_requester = {
+					entity = requester_data.entity,
+					requested_item = item,
+					real_amount = item_request.real_amount,
+					incoming_items = requester_data.incoming_items
+				}
+				local assigned = logistics.assign_spider(spiders_on_network, temp_requester, best_provider, max)
+				if not assigned then
+					goto next_requester
+				end
+				if #spiders_on_network == 0 then
 					goto next_network
 				end
 			end
+			
+			::next_requester::
 		end
 		::next_network::
 	end
 end)
-
-local function deposit_already_had(spider_data)
-	local spider = spider_data.entity
-	if not spider.valid then return end
-
-	local contains = spider.get_inventory(defines.inventory.spider_trunk).get_contents()
-	if next(contains) == nil then return end
-	
-	local network = spidertron_network(spider)
-	if not network then return end
-	
-	local requesters = {}
-	local i = 1
-	for _, requester_data in pairs(storage.requesters) do
-		local requester = requester_data.entity
-		if not requester.valid then goto continue end
-		local item = requester_data.requested_item
-		if item and contains[item] and requester.can_insert(item) and requester.get_item_count(item) + (requester_data.incoming_items[item] or 0) ~= requester_data.request_size then
-			if spidertron_network(requester) == network then
-				requesters[i] = requester
-				i = i + 1
-			end
-		end
-		::continue::
-	end
-	
-	if #requesters == 0 then return end
-	
-	local position = spider.position
-	local requester = spider.surface.get_closest({position.x, position.y - 2}, requesters)
-	local requester_data = storage.requesters[requester.unit_number]
-	
-	local item = requester_data.requested_item
-	local incoming = requester_data.incoming_items[item] or 0
-	local already_had = requester_data.request_size - requester.get_item_count(item) - incoming
-	local can_provide = spider.get_item_count(item)
-	if can_provide > already_had then can_provide = already_had end
-	
-	requester_data.incoming_items[item] = incoming + can_provide
-		
-	spider_data.status = dropping_off
-	spider_data.requester_target = requester_data.entity
-	spider_data.payload_item = item
-	spider_data.payload_item_count = can_provide
-	spider.add_autopilot_destination(requester.position)
-end
 
 script.on_event(defines.events.on_spider_command_completed, function(event)
 	local spider = event.vehicle
@@ -782,20 +369,20 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	local spider_data = storage.spiders[unit_number]
 	
 	local goal
-	if spider_data == nil or spider_data.status == idle then
+	if spider_data == nil or spider_data.status == constants.idle then
 		return
-	elseif spider_data.status == picking_up then
+	elseif spider_data.status == constants.picking_up then
 		if not spider_data.requester_target.valid then
-			end_journey(unit_number, true)
+			journey.end_journey(unit_number, true)
 			return
 		end
 		goal = spider_data.provider_target
-	elseif spider_data.status == dropping_off then
+	elseif spider_data.status == constants.dropping_off then
 		goal = spider_data.requester_target
 	end
 	
-	if not goal or not goal.valid or goal.to_be_deconstructed() or spider.surface ~= goal.surface or distance(spider.position, goal.position) > 6 then
-		end_journey(unit_number, true)
+	if not goal or not goal.valid or goal.to_be_deconstructed() or spider.surface ~= goal.surface or utils.distance(spider.position, goal.position) > 6 then
+		journey.end_journey(unit_number, true)
 		return
 	end
 	
@@ -804,9 +391,28 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	local requester = spider_data.requester_target
 	local requester_data = storage.requesters[requester.unit_number]
 	
-	if spider_data.status == picking_up then
+	if spider_data.status == constants.picking_up then
 		local provider = spider_data.provider_target
 		local provider_data = storage.providers[provider.unit_number]
+		local is_robot_chest = false
+		
+		-- Check if this is a robot chest
+		if provider_data then
+			is_robot_chest = provider_data.is_robot_chest or false
+		else
+			-- Not in storage.providers, check if it's a robot chest type
+			local robot_chest_names = {
+				'storage-chest',
+				'active-provider-chest',
+				'passive-provider-chest'
+			}
+			for _, chest_name in ipairs(robot_chest_names) do
+				if provider.name == chest_name then
+					is_robot_chest = true
+					break
+				end
+			end
+		end
 		
 		local contains = provider.get_item_count(item)
 		if contains > item_count then contains = item_count end
@@ -814,42 +420,50 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		if already_had > item_count then already_had = item_count end
 		
 		if contains + already_had == 0 then
-			end_journey(unit_number, true)
+			journey.end_journey(unit_number, true)
 			return
 		end
 		
 		local can_insert = min(contains - already_had, item_count)
 		local actually_inserted = can_insert <= 0 and 0 or spider.insert{name = item, count = can_insert}
 		if actually_inserted + already_had == 0 then
-			end_journey(unit_number, true)
+			journey.end_journey(unit_number, true)
 			return
 		end
 		
 		if actually_inserted ~= 0 then
 			provider.remove_item{name = item, count = actually_inserted}
-			draw_withdraw_icon(provider)
+			-- Only track pickup_count for custom provider chests
+			if not is_robot_chest and provider_data then
+				provider_data.pickup_count = (provider_data.pickup_count or 0) + actually_inserted
+			end
+			rendering.draw_withdraw_icon(provider)
 		end
 		spider_data.payload_item_count = actually_inserted + already_had
 		requester_data.incoming_items[item] = requester_data.incoming_items[item] - item_count + actually_inserted + already_had
 		
 		spider.add_autopilot_destination(spider_data.requester_target.position)
 		
-		local allocated_items = provider_data.allocated_items
-		allocated_items[item] = allocated_items[item] - item_count
-		if allocated_items[item] == 0 then allocated_items[item] = nil end
+		-- Only update allocated_items for custom provider chests
+		if not is_robot_chest and provider_data then
+			local allocated_items = provider_data.allocated_items
+			allocated_items[item] = allocated_items[item] - item_count
+			if allocated_items[item] == 0 then allocated_items[item] = nil end
+		end
 		
-		spider_data.status = dropping_off
-	elseif spider_data.status == dropping_off then
+		spider_data.status = constants.dropping_off
+	elseif spider_data.status == constants.dropping_off then
 		local can_insert = min(spider.get_item_count(item), item_count)
 		local actually_inserted = can_insert <= 0 and 0 or requester.insert{name = item, count = can_insert}
 			   
 		if actually_inserted ~= 0 then
 			spider.remove_item{name = item, count = actually_inserted}
-			draw_deposit_icon(requester)
+			requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
+			rendering.draw_deposit_icon(requester)
 		end
 		
-		end_journey(unit_number, true)
-		deposit_already_had(spider_data)
+		journey.end_journey(unit_number, true)
+		journey.deposit_already_had(spider_data)
 	end
 end)
 
@@ -857,13 +471,30 @@ script.on_event(defines.events.on_entity_died, function(event)
 	local unit_number = event.unit_number
 	
 	if storage.spiders[unit_number] then
-		end_journey(unit_number, false)
+		journey.end_journey(unit_number, false)
 		storage.spiders[unit_number] = nil
 	elseif storage.requesters[unit_number] then
+		beacon_assignment.unassign_chest_from_beacon(unit_number)
 		storage.requesters[unit_number] = nil
 	elseif storage.providers[unit_number] then
+		beacon_assignment.unassign_chest_from_beacon(unit_number)
 		storage.providers[unit_number] = nil
 	elseif storage.beacons[unit_number] then
+		-- Reassign all chests from this beacon to other beacons
+		local beacon_data = storage.beacons[unit_number]
+		if beacon_data and beacon_data.assigned_chests then
+			for _, chest_unit_number in ipairs(beacon_data.assigned_chests) do
+				local chest = nil
+				if storage.providers[chest_unit_number] then
+					chest = storage.providers[chest_unit_number].entity
+				elseif storage.requesters[chest_unit_number] then
+					chest = storage.requesters[chest_unit_number].entity
+				end
+				if chest and chest.valid then
+					beacon_assignment.assign_chest_to_nearest_beacon(chest)
+				end
+			end
+		end
 		storage.beacons[unit_number] = nil
 	end
 end)
@@ -872,13 +503,13 @@ local function built(event)
 	local entity = event.created_entity or event.entity
 
 	if entity.type == 'spider-vehicle' and entity.prototype.order ~= 'z[programmable]' then
-		register_spider_safe(entity)
-	elseif entity.name == spidertron_requester_chest then
-		register_requester(entity, event.tags)
-	elseif entity.name == spidertron_provider_chest then
-		register_provider(entity)
-	elseif entity.name == spidertron_logistic_beacon then
-		register_beacon(entity)
+		registration.register_spider(entity)
+	elseif entity.name == constants.spidertron_requester_chest then
+		registration.register_requester(entity, event.tags)
+	elseif entity.name == constants.spidertron_provider_chest then
+		registration.register_provider(entity)
+	elseif entity.name == constants.spidertron_logistic_beacon then
+		registration.register_beacon(entity)
 	end
 end
 
@@ -921,78 +552,61 @@ script.on_event(defines.events.on_player_configured_blueprint, function(event)
 	storage.blueprint_mappings[player.index] = nil
 end)
 
-script.on_event(defines.events.on_player_removed_equipment, function(event)
-	if event.equipment ~= spidertron_logistic_controller then return end
-
-	local grid = event.grid
-	local count = count_controllers(grid)
-	if count > 1 then return end
-
-	local player = game.get_player(event.player_index)
-	local entity
-	for _, spider in pairs(player.surface.find_entities_filtered{type = 'spider-vehicle'}) do
-		local spider_grid = spider.grid
-		if spider_grid and spider_grid == grid then
-			entity = spider
-			break
-		end
-	end
-	
-	if entity == nil then return end
-	
-	if count == 1 then
-		grid.inhibit_movement_bonus = false
-		entity.active = true
-	elseif count == 0 then
-		local unit_number = entity.unit_number
-		end_journey(unit_number, false)
-		storage.spiders[unit_number] = nil
-	end
-end)
-
-script.on_event(defines.events.on_equipment_inserted, function(event)
-	if event.equipment.name ~= spidertron_logistic_controller then return end
-
-	local grid = event.grid
-	local entity
-	for _, surface in pairs(game.surfaces) do
-		for _, spider in pairs(surface.find_entities_filtered{type = 'spider-vehicle'}) do
-			local spider_grid = spider.grid
-			if spider_grid and spider_grid == grid then
-				entity = spider
-				break
-			end
-		end
-	end
-
-	if not entity then return end
-	if entity.prototype.order == 'z[programmable]' then return end
-	
-	local count = count_controllers(grid)
-	if count == 0 then return end
-	
-	if count > 1 then
-		grid.inhibit_movement_bonus = true
-		entity.active = false
-	elseif count == 1 then
-		grid.inhibit_movement_bonus = false
-		entity.active = true
-	end
-               
-	if not storage.spiders[entity.unit_number] then
-		register_spider(entity)
-	end
-end)
-
+-- Setup and initialization
 local function setup()
 	storage.spiders = storage.spiders or {}
 	storage.requesters = storage.requesters or {}
 	storage.requester_guis = storage.requester_guis or {}
 	storage.providers = storage.providers or {}
-	storage.original_forces = storage.original_forces or {}
-	storage.held_planner_forces = storage.held_planner_forces or {}
 	storage.beacons = storage.beacons or {}
+	storage.beacon_assignments = storage.beacon_assignments or {}
 	storage.blueprint_mappings = storage.blueprint_mappings or {}
+	
+	-- Migrate old beacon storage format if needed
+	for unit_number, beacon in pairs(storage.beacons) do
+		if type(beacon) == "table" and beacon.entity then
+			-- Already in new format
+		else
+			-- Old format: just the entity, convert to new format
+			if beacon and beacon.valid then
+				storage.beacons[unit_number] = {
+					entity = beacon,
+					assigned_chests = {}
+				}
+			else
+				storage.beacons[unit_number] = nil
+			end
+		end
+	end
+	
+	-- Reassign all chests to beacons on load
+	for _, provider_data in pairs(storage.providers) do
+		if provider_data.entity and provider_data.entity.valid then
+			if not provider_data.beacon_owner then
+				beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+			end
+		end
+	end
+	
+	for _, requester_data in pairs(storage.requesters) do
+		if requester_data.entity and requester_data.entity.valid then
+			if not requester_data.beacon_owner then
+				beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+			end
+		end
+	end
+	
+	-- Migrate spiders to have active field if missing
+	for unit_number, spider_data in pairs(storage.spiders) do
+		if spider_data.entity and spider_data.entity.valid then
+			if spider_data.active == nil then
+				spider_data.active = false  -- Default to inactive for existing spiders
+			end
+		end
+	end
+	
+	-- Register all commands
+	debug_commands.register_all()
 end
 
 script.on_init(setup)
