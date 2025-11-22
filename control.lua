@@ -46,6 +46,23 @@ script.on_event(defines.events.on_gui_opened, function(event)
 			end
 		end
 		
+		-- Ensure requester has beacon assignment
+		if not requester_data.beacon_owner then
+			beacon_assignment.assign_chest_to_nearest_beacon(entity)
+		else
+			-- Verify beacon still exists and is valid
+			local beacon_data = storage.beacons[requester_data.beacon_owner]
+			if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
+				requester_data.beacon_owner = nil
+				beacon_assignment.assign_chest_to_nearest_beacon(entity)
+			end
+		end
+		
+		-- Ensure incoming_items is initialized
+		if not requester_data.incoming_items then
+			requester_data.incoming_items = {}
+		end
+		
 		local gui_data = gui.requester_gui(event.player_index)
 		gui_data.last_opened_requester = requester_data
 		gui.update_requester_gui(gui_data, requester_data)
@@ -115,9 +132,25 @@ script.on_event(defines.events.on_gui_elem_changed, function(event)
 	
 	-- Handle item chooser selection
 	if element.name == 'spidertron_item_chooser' then
+		local player = game.get_player(event.player_index)
 		for _, gui_data in pairs(storage.requester_guis) do
 			if gui_data and gui_data.item_selector_item_chooser and gui_data.item_selector_item_chooser == element then
-				gui_data.item_selector_selected_item = element.elem_value
+				local item_name = element.elem_value
+				gui_data.item_selector_selected_item = item_name
+				
+				-- Update slider and label to use stack size (1x stack) when item is selected
+				if item_name then
+					local stack_size = utils.stack_size(item_name)
+					-- Ensure we have at least 1 (stack_size should already return the full stack size)
+					if stack_size < 1 then stack_size = 1 end
+					
+					if gui_data.item_selector_slider and gui_data.item_selector_slider.valid then
+						gui_data.item_selector_slider.slider_value = stack_size
+					end
+					if gui_data.item_selector_quantity_label and gui_data.item_selector_quantity_label.valid then
+						gui_data.item_selector_quantity_label.caption = tostring(stack_size)
+					end
+				end
 				return
 			end
 		end
@@ -199,6 +232,17 @@ script.on_event(defines.events.on_gui_click, function(event)
 						
 						-- Add new item
 						requester_data.requested_items[selected_item] = quantity
+						
+						-- Ensure requester has beacon assignment
+						local requester = requester_data.entity
+						if requester and requester.valid and not requester_data.beacon_owner then
+							beacon_assignment.assign_chest_to_nearest_beacon(requester)
+						end
+						
+						-- Ensure incoming_items is initialized
+						if not requester_data.incoming_items then
+							requester_data.incoming_items = {}
+						end
 						
 						-- Update GUI
 						gui.update_requester_gui(gui_data, requester_data)
@@ -288,6 +332,40 @@ end)
 
 -- Main logistics update loop
 script.on_nth_tick(constants.update_cooldown, function(event)
+	-- Re-validate beacon assignments periodically to ensure all chests have owners
+	-- Only do this every 60 ticks (once per second) to avoid performance issues
+	if event.tick % 60 == 0 then
+		for _, requester_data in pairs(storage.requesters) do
+			if requester_data.entity and requester_data.entity.valid then
+				if not requester_data.beacon_owner then
+					beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+				else
+					-- Verify beacon still exists and is valid
+					local beacon_data = storage.beacons[requester_data.beacon_owner]
+					if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
+						requester_data.beacon_owner = nil
+						beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+					end
+				end
+			end
+		end
+		
+		for _, provider_data in pairs(storage.providers) do
+			if provider_data.entity and provider_data.entity.valid then
+				if not provider_data.beacon_owner then
+					beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+				else
+					-- Verify beacon still exists and is valid
+					local beacon_data = storage.beacons[provider_data.beacon_owner]
+					if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
+						provider_data.beacon_owner = nil
+						beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+					end
+				end
+			end
+		end
+	end
+	
 	local requests = logistics.requesters()
 	local spiders_list = logistics.spiders()
 	local providers_list = logistics.providers()
@@ -318,13 +396,21 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 				local allocated = 0
 				
 				if provider_data.is_robot_chest then
-					-- For robot chests, check if item is available in the chest
-					-- We don't track allocated_items for robot chests (robots handle that)
-					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+					-- For robot chests, use the contains data that was already calculated
+					-- or recalculate if not available (shouldn't happen, but safety check)
+					if provider_data.contains and provider_data.contains[item] then
+						item_count = provider_data.contains[item]
+					else
+						-- Fallback: recalculate from inventory
+						item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+					end
 					allocated = 0  -- Robot chests don't use allocation tracking
 				else
 					-- Custom provider chest logic (existing)
 					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+					if not provider_data.allocated_items then
+						provider_data.allocated_items = {}
+					end
 					allocated = provider_data.allocated_items[item] or 0
 				end
 				
@@ -414,7 +500,9 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			end
 		end
 		
-		local contains = provider.get_item_count(item)
+		-- Get item count from provider chest inventory
+		local provider_inventory = provider.get_inventory(defines.inventory.chest)
+		local contains = provider_inventory and provider_inventory.get_item_count(item) or 0
 		if contains > item_count then contains = item_count end
 		local already_had = spider.get_item_count(item)
 		if already_had > item_count then already_had = item_count end
@@ -439,28 +527,121 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			end
 			rendering.draw_withdraw_icon(provider)
 		end
-		spider_data.payload_item_count = actually_inserted + already_had
-		requester_data.incoming_items[item] = requester_data.incoming_items[item] - item_count + actually_inserted + already_had
 		
-		spider.add_autopilot_destination(spider_data.requester_target.position)
+		-- Verify pickup actually succeeded before proceeding
+		local final_spider_count = spider.get_item_count(item)
+		local expected_count = actually_inserted + already_had
+		
+		if final_spider_count < expected_count then
+			-- Pickup didn't complete as expected - retry
+			-- Initialize retry counter if not exists
+			if not spider_data.pickup_retry_count then
+				spider_data.pickup_retry_count = 0
+			end
+			spider_data.pickup_retry_count = spider_data.pickup_retry_count + 1
+			
+			-- If we've retried too many times, abort
+			if spider_data.pickup_retry_count > 5 then
+				-- Too many retries, something is wrong - end journey
+				journey.end_journey(unit_number, true)
+				return
+			end
+			
+			-- Retry by setting destination to provider again
+			if provider and provider.valid then
+				spider.add_autopilot_destination(provider.position)
+			else
+				-- Provider is invalid, abort
+				journey.end_journey(unit_number, true)
+			end
+			return
+		end
+		
+		-- Successfully picked up, reset retry counter
+		spider_data.pickup_retry_count = nil
+		
+		spider_data.payload_item_count = actually_inserted + already_had
+		-- Update incoming_items: subtract original expected amount, add back what was actually picked up
+		if not requester_data.incoming_items then
+			requester_data.incoming_items = {}
+		end
+		requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count + actually_inserted + already_had
+		if requester_data.incoming_items[item] <= 0 then
+			requester_data.incoming_items[item] = nil
+		end
+		
+		-- Only proceed to next destination if we actually have items
+		if spider_data.payload_item_count > 0 then
+			spider.add_autopilot_destination(spider_data.requester_target.position)
+		else
+			-- No items picked up, end journey
+			journey.end_journey(unit_number, true)
+		end
 		
 		-- Only update allocated_items for custom provider chests
 		if not is_robot_chest and provider_data then
 			local allocated_items = provider_data.allocated_items
-			allocated_items[item] = allocated_items[item] - item_count
-			if allocated_items[item] == 0 then allocated_items[item] = nil end
+			if allocated_items then
+				allocated_items[item] = (allocated_items[item] or 0) - item_count
+				if allocated_items[item] <= 0 then allocated_items[item] = nil end
+			end
 		end
 		
 		spider_data.status = constants.dropping_off
 	elseif spider_data.status == constants.dropping_off then
-		local can_insert = min(spider.get_item_count(item), item_count)
+		local spider_item_count = spider.get_item_count(item)
+		local can_insert = min(spider_item_count, item_count)
 		local actually_inserted = can_insert <= 0 and 0 or requester.insert{name = item, count = can_insert}
-			   
-		if actually_inserted ~= 0 then
-			spider.remove_item{name = item, count = actually_inserted}
-			requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
-			rendering.draw_deposit_icon(requester)
+		
+		-- Verify dropoff actually succeeded before proceeding
+		if actually_inserted > 0 then
+			local removed = spider.remove_item{name = item, count = actually_inserted}
+			-- Verify items were actually removed from spider
+			if removed == actually_inserted then
+				requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
+				rendering.draw_deposit_icon(requester)
+			else
+				-- Removal failed - items might have been taken by something else
+				-- Update incoming_items to reflect what was actually inserted
+				if not requester_data.incoming_items then
+					requester_data.incoming_items = {}
+				end
+				requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - (item_count - removed)
+				if requester_data.incoming_items[item] <= 0 then
+					requester_data.incoming_items[item] = nil
+				end
+			end
 		end
+		
+		-- Verify spider no longer has the items (or has fewer) before ending journey
+		local remaining_spider_count = spider.get_item_count(item)
+		if remaining_spider_count >= spider_item_count and spider_item_count > 0 then
+			-- Dropoff failed - items are still in spider, retry
+			-- Initialize retry counter if not exists
+			if not spider_data.dropoff_retry_count then
+				spider_data.dropoff_retry_count = 0
+			end
+			spider_data.dropoff_retry_count = spider_data.dropoff_retry_count + 1
+			
+			-- If we've retried too many times, abort
+			if spider_data.dropoff_retry_count > 5 then
+				-- Too many retries, something is wrong - end journey
+				journey.end_journey(unit_number, true)
+				return
+			end
+			
+			-- Retry by setting destination to requester again
+			if requester and requester.valid then
+				spider.add_autopilot_destination(requester.position)
+			else
+				-- Requester is invalid, abort
+				journey.end_journey(unit_number, true)
+			end
+			return
+		end
+		
+		-- Successfully dropped off, reset retry counter
+		spider_data.dropoff_retry_count = nil
 		
 		journey.end_journey(unit_number, true)
 		journey.deposit_already_had(spider_data)

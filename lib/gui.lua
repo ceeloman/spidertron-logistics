@@ -226,7 +226,7 @@ function gui.open_item_selector_gui(player_index, slot_index, gui_data, requeste
 	local quantity_value = quantity_frame.add{
 		type = 'label',
 		name = 'spidertron_quantity_label',
-		caption = '100'
+		caption = '0'
 	}
 	quantity_value.style.font = 'default-large-bold'
 	quantity_value.style.top_margin = 4
@@ -236,7 +236,7 @@ function gui.open_item_selector_gui(player_index, slot_index, gui_data, requeste
 		name = 'spidertron_quantity_slider',
 		minimum_value = 0,
 		maximum_value = 1000,
-		value = 100,
+		value = 0,
 		value_step = 50
 	}
 	slider.style.horizontally_stretchable = true

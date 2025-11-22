@@ -2,9 +2,13 @@
 
 local constants = require('lib.constants')
 
+-- Store reference to global rendering API before creating local module
+local global_rendering = rendering
+
 local rendering = {}
 
-local draw_sprite = rendering.draw_sprite
+-- Use global rendering API from Factorio
+local draw_sprite = global_rendering.draw_sprite
 
 function rendering.draw_no_energy_icon(target, offset)
 	draw_sprite{

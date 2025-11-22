@@ -72,6 +72,9 @@ function logistics.requesters()
 			if not item or item == '' or request_size <= 0 then goto next_item end
 			if not requester.can_insert(item) then goto next_item end
 			
+			if not requester_data.incoming_items then
+				requester_data.incoming_items = {}
+			end
 			local incoming = requester_data.incoming_items[item] or 0
 			local already_had = requester.get_item_count(item)
 			
@@ -280,9 +283,15 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	-- Only track allocated_items for custom provider chests
 	-- Robot chests don't use allocation (robots handle their own allocation)
 	if not provider_data.is_robot_chest then
+		if not provider_data.allocated_items then
+			provider_data.allocated_items = {}
+		end
 		provider_data.allocated_items[item] = (provider_data.allocated_items[item] or 0) + can_provide
 	end
 	
+	if not requester_data.incoming_items then
+		requester_data.incoming_items = {}
+	end
 	requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) + can_provide
 	requester_data.real_amount = amount - can_provide
 	spider_data.status = constants.picking_up

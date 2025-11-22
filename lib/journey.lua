@@ -21,8 +21,14 @@ function journey.end_journey(unit_number, find_beacon)
 		beacon_starting_point = requester
 		
 		local requester_data = storage.requesters[requester.unit_number]
-		if requester_data then
-			requester_data.incoming_items[item] = requester_data.incoming_items[item] - item_count
+		if requester_data and item then
+			if not requester_data.incoming_items then
+				requester_data.incoming_items = {}
+			end
+			requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
+			if requester_data.incoming_items[item] <= 0 then
+				requester_data.incoming_items[item] = nil
+			end
 		end
 	end
 	
@@ -31,9 +37,12 @@ function journey.end_journey(unit_number, find_beacon)
 		if provider and provider.valid then
 			beacon_starting_point = provider
 			
-			local allocated_items = storage.providers[provider.unit_number].allocated_items
-			allocated_items[item] = allocated_items[item] - item_count
-			if allocated_items[item] == 0 then allocated_items[item] = nil end
+			local provider_data = storage.providers[provider.unit_number]
+			if provider_data and provider_data.allocated_items and item then
+				local allocated_items = provider_data.allocated_items
+				allocated_items[item] = (allocated_items[item] or 0) - item_count
+				if allocated_items[item] <= 0 then allocated_items[item] = nil end
+			end
 		end
 	end
 	
@@ -49,6 +58,9 @@ function journey.end_journey(unit_number, find_beacon)
 	spider_data.payload_item = nil
 	spider_data.payload_item_count = 0
 	spider_data.status = constants.idle
+	-- Clear retry counters
+	spider_data.pickup_retry_count = nil
+	spider_data.dropoff_retry_count = nil
 end
 
 function journey.deposit_already_had(spider_data)
@@ -103,6 +115,9 @@ function journey.deposit_already_had(spider_data)
 	local requester_data = storage.requesters[requester.unit_number]
 	local item = requester_items[requester.unit_number]
 	
+	if not requester_data.incoming_items then
+		requester_data.incoming_items = {}
+	end
 	local incoming = requester_data.incoming_items[item] or 0
 	local request_size = requester_data.requested_items[item] or 0
 	local already_had = request_size - requester.get_item_count(item) - incoming

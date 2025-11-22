@@ -123,8 +123,6 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest)
 end
 
 function beacon_assignment.spidertron_network(entity)
-	local constants = require('lib.constants')
-	
 	-- Get the beacon owner for this entity
 	local beacon_owner = nil
 	
