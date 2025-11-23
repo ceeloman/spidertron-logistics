@@ -14,7 +14,7 @@ function beacon_assignment.find_nearest_beacon(surface, position, force)
 	}
 	
 	if #beacons == 0 then
-		logging.debug("Beacon", "No beacons found on surface for position (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
+		-- logging.debug("Beacon", "No beacons found on surface for position (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 		return nil
 	end
 	
@@ -30,7 +30,7 @@ function beacon_assignment.find_nearest_beacon(surface, position, force)
 		end
 	end
 	
-	logging.debug("Beacon", "Found nearest beacon " .. nearest.unit_number .. " at distance " .. string.format("%.2f", nearest_distance))
+	-- logging.debug("Beacon", "Found nearest beacon " .. nearest.unit_number .. " at distance " .. string.format("%.2f", nearest_distance))
 	return nearest
 end
 
@@ -105,13 +105,13 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest)
 	local force = chest.force
 	local position = chest.position
 	
-	logging.debug("Beacon", "Assigning chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ") to nearest beacon")
+	-- logging.debug("Beacon", "Assigning chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ") to nearest beacon")
 	
 	local nearest_beacon = beacon_assignment.find_nearest_beacon(surface, position, force)
 	if nearest_beacon then
 		-- Ensure beacon is registered in storage
 		if not storage.beacons[nearest_beacon.unit_number] then
-			logging.info("Beacon", "Registering unregistered beacon " .. nearest_beacon.unit_number)
+			-- logging.info("Beacon", "Registering unregistered beacon " .. nearest_beacon.unit_number)
 			-- Register the beacon if it's not already registered
 			storage.beacons[nearest_beacon.unit_number] = {
 				entity = nearest_beacon,
@@ -127,13 +127,13 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest)
 		-- Update chest data
 		if storage.providers[chest_unit_number] then
 			storage.providers[chest_unit_number].beacon_owner = nearest_beacon.unit_number
-			logging.info("Beacon", "Provider chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
+			-- logging.info("Beacon", "Provider chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
 		elseif storage.requesters[chest_unit_number] then
 			storage.requesters[chest_unit_number].beacon_owner = nearest_beacon.unit_number
-			logging.info("Beacon", "Requester chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
+			-- logging.info("Beacon", "Requester chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
 		end
 	else
-		logging.warn("Beacon", "No beacon found for chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
+		-- logging.warn("Beacon", "No beacon found for chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 	end
 end
 

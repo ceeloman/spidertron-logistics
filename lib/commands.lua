@@ -8,7 +8,8 @@ local debug_commands = {}
 
 function debug_commands.register_all()
 	-- Command to show active spiders
-	commands.add_command("show_active_spiders", {"command.show-active-spiders-help"}, function(event)
+	local success, err = pcall(function()
+		commands.add_command("show_active_spiders", {"command.show-active-spiders-help"}, function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -77,10 +78,15 @@ function debug_commands.register_all()
 		else
 			player.print("No spiders registered.")
 		end
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 
 	-- Command to show requester chests status
-	commands.add_command("show_requesters", "Shows status of all requester chests", function(event)
+	success, err = pcall(function()
+		commands.add_command("show_requesters", "Shows status of all requester chests", function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -113,10 +119,15 @@ function debug_commands.register_all()
 		else
 			player.print(string.format("Total requesters: %d", count))
 		end
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 
 	-- Command to show provider chests status
-	commands.add_command("show_providers", "Shows status of all provider chests", function(event)
+	success, err = pcall(function()
+		commands.add_command("show_providers", "Shows status of all provider chests", function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -172,10 +183,15 @@ function debug_commands.register_all()
 		else
 			player.print(string.format("Total providers: %d", count))
 		end
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 
 	-- Command to show beacons and assignments
-	commands.add_command("show_beacons", "Shows all beacons and their assigned chests", function(event)
+	success, err = pcall(function()
+		commands.add_command("show_beacons", "Shows all beacons and their assigned chests", function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -209,10 +225,15 @@ function debug_commands.register_all()
 		else
 			player.print(string.format("Total beacons: %d", count))
 		end
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 
 	-- Command to show task assignment status
-	commands.add_command("show_tasks", "Shows available tasks and spider assignments", function(event)
+	success, err = pcall(function()
+		commands.add_command("show_tasks", "Shows available tasks and spider assignments", function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -284,10 +305,15 @@ function debug_commands.register_all()
 		
 		player.print(string.format("Summary: %d requests, %d providers, %d available spiders, %d assigned", 
 			total_requests, total_providers, total_spiders, assigned_count))
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 
 	-- Command to show general status
-	commands.add_command("show_status", "Shows general logistics system status", function(event)
+	success, err = pcall(function()
+		commands.add_command("show_status", "Shows general logistics system status", function(event)
 		local player = game.get_player(event.player_index)
 		if not player or not player.valid then return end
 		
@@ -350,7 +376,11 @@ function debug_commands.register_all()
 		player.print(string.format("Providers: %d total (%d with items)", 
 			provider_count, provider_with_items))
 		player.print(string.format("Beacons: %d", beacon_count))
+		end)
 	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
 end
 
 	return debug_commands

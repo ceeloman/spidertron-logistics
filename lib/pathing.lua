@@ -22,37 +22,37 @@ function pathing.can_spider_traverse_water(spider)
 	
 	if not success or not legs or #legs == 0 then
 		-- No legs = can traverse water (hovering/legless spider)
-		logging.info("Pathing", "Spider " .. spider.unit_number .. " (" .. spider.name .. ") has no legs, CAN traverse water")
+		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " (" .. spider.name .. ") has no legs, CAN traverse water")
 		return true
 	end
 	
 	-- Get the first leg's collision mask (all legs should have the same collision mask)
 	local first_leg = legs[1]
 	if not first_leg or not first_leg.valid then
-		logging.warn("Pathing", "Spider " .. spider.unit_number .. " first leg is invalid")
+		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " first leg is invalid")
 		return false
 	end
 	
 	local leg_prototype = first_leg.prototype
 	if not leg_prototype then
-		logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no prototype")
+		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no prototype")
 		return false
 	end
 	
 	-- Get the leg's collision mask
 	local leg_collision_mask = leg_prototype.collision_mask
 	if not leg_collision_mask or not leg_collision_mask.layers then
-		logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no collision_mask.layers")
+		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no collision_mask.layers")
 		return false
 	end
 	
 	-- Check if legs collide with "player" layer (water tiles have "player" in their collision mask)
 	-- If legs have "player" in collision mask, they will collide with water = cannot traverse
 	if leg_collision_mask.layers["player"] then
-		logging.info("Pathing", "Spider " .. spider.unit_number .. " legs have 'player' in collision mask, CANNOT traverse water")
+		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " legs have 'player' in collision mask, CANNOT traverse water")
 		return false
 	else
-		logging.info("Pathing", "Spider " .. spider.unit_number .. " legs do NOT have 'player' in collision mask, CAN traverse water")
+		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " legs do NOT have 'player' in collision mask, CAN traverse water")
 		return true
 	end
 end
@@ -95,15 +95,15 @@ local function get_path_collision_mask(spider)
 	if not can_water then
 		base_collision_mask["water_tile"] = true
 		base_collision_mask["lava_tile"] = true
-		logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot traverse water/lava, adding water_tile and lava_tile to collision mask")
+		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot traverse water/lava, adding water_tile and lava_tile to collision mask")
 	else
-		logging.debug("Pathing", "Spider " .. spider.unit_number .. " can traverse water")
+		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " can traverse water")
 	end
 	
 	-- If spider can't cross cliffs, ensure cliff is in collision mask
 	if not can_cliffs then
 		base_collision_mask["cliff"] = true
-		logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot cross cliffs, adding cliff to collision mask")
+		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot cross cliffs, adding cliff to collision mask")
 	end
 	
 	-- Keep as dictionary format for request_path (API requires dictionary, not array)
@@ -112,7 +112,7 @@ local function get_path_collision_mask(spider)
 	for layer_name, _ in pairs(base_collision_mask) do
 		table.insert(layer_names, layer_name)
 	end
-	logging.debug("Pathing", "Spider " .. spider.unit_number .. " collision mask layers: " .. table.concat(layer_names, ", "))
+	-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " collision mask layers: " .. table.concat(layer_names, ", "))
 	
 	return {
 		layers = base_collision_mask,  -- Keep as dictionary, not array
@@ -177,11 +177,11 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 	local collision_mask = get_path_collision_mask(spider)
 	
 	-- DEBUG: Log pathfinding request details
-	logging.info("Pathing", "Setting path for spider " .. spider.unit_number .. " (" .. spider.name .. ")")
-	logging.info("Pathing", "  Start: (" .. string.format("%.2f", start_pos.x) .. "," .. string.format("%.2f", start_pos.y) .. ")")
-	logging.info("Pathing", "  Goal: (" .. string.format("%.2f", destination_pos.x) .. "," .. string.format("%.2f", destination_pos.y) .. ")")
-	logging.info("Pathing", "  Distance: " .. string.format("%.2f", distance))
-	logging.info("Pathing", "  Destination on water: " .. tostring(is_water))
+	-- logging.info("Pathing", "Setting path for spider " .. spider.unit_number .. " (" .. spider.name .. ")")
+	-- logging.info("Pathing", "  Start: (" .. string.format("%.2f", start_pos.x) .. "," .. string.format("%.2f", start_pos.y) .. ")")
+	-- logging.info("Pathing", "  Goal: (" .. string.format("%.2f", destination_pos.x) .. "," .. string.format("%.2f", destination_pos.y) .. ")")
+	-- logging.info("Pathing", "  Distance: " .. string.format("%.2f", distance))
+	-- logging.info("Pathing", "  Destination on water: " .. tostring(is_water))
 	
 	-- Check if path will cross water
 	local path_crosses_water = false
@@ -197,7 +197,7 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 				local tile_name = check_tile.name:lower()
 				if tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal") then
 					path_crosses_water = true
-					logging.warn("Pathing", "  WARNING: Path crosses water at (" .. math.floor(check_x) .. "," .. math.floor(check_y) .. ")")
+					-- logging.warn("Pathing", "  WARNING: Path crosses water at (" .. math.floor(check_x) .. "," .. math.floor(check_y) .. ")")
 					break
 				end
 			end
@@ -221,7 +221,7 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 		}
 	}
 	
-	logging.info("Pathing", "  Path request ID: " .. request_id)
+	-- logging.info("Pathing", "  Path request ID: " .. request_id)
 	
 	-- Store retry attempt count
 	local retry_count = 0
@@ -299,7 +299,7 @@ local function simplify_waypoints(surface, waypoints, start_pos, can_water, can_
 			if not is_on_water and not exact_is_water then
 				table.insert(filtered_waypoints, waypoint)
 			else
-				logging.warn("Pathing", "  Simplification: Filtered water waypoint at (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ")")
+				-- logging.warn("Pathing", "  Simplification: Filtered water waypoint at (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ")")
 			end
 		end
 		waypoints = filtered_waypoints
@@ -461,7 +461,7 @@ local function smooth_waypoints(waypoints, start_pos)
 		
 		-- Check if this waypoint is locked (detour point) - if so, don't smooth it
 		if curr_pos.locked then
-			logging.debug("Pathing", "  Skipping smoothing for locked waypoint at (" .. string.format("%.1f", curr_pos.x) .. "," .. string.format("%.1f", curr_pos.y) .. ")")
+			-- logging.debug("Pathing", "  Skipping smoothing for locked waypoint at (" .. string.format("%.1f", curr_pos.x) .. "," .. string.format("%.1f", curr_pos.y) .. ")")
 			table.insert(smoothed, curr_pos)
 			goto continue
 		end
@@ -584,10 +584,10 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 	
 	-- Choose the shorter route
 	if left_dist <= right_dist then
-		logging.info("Pathing", "  Detour: LEFT side chosen (dist=" .. string.format("%.1f", left_dist) .. " vs " .. string.format("%.1f", right_dist) .. ")")
+		-- logging.info("Pathing", "  Detour: LEFT side chosen (dist=" .. string.format("%.1f", left_dist) .. " vs " .. string.format("%.1f", right_dist) .. ")")
 		return left_detour
 	else
-		logging.info("Pathing", "  Detour: RIGHT side chosen (dist=" .. string.format("%.1f", right_dist) .. " vs " .. string.format("%.1f", left_dist) .. ")")
+		-- logging.info("Pathing", "  Detour: RIGHT side chosen (dist=" .. string.format("%.1f", right_dist) .. " vs " .. string.format("%.1f", left_dist) .. ")")
 		return right_detour
 	end
 end
@@ -619,7 +619,7 @@ local function insert_nest_detours(surface, waypoints)
 				violations_found = true
 				local nest = nearby_nests[1]  -- Use closest nest
 				
-				logging.warn("Pathing", "  Iteration " .. iteration .. ": Waypoint " .. i .. " (" .. string.format("%.1f", curr_wp.x) .. "," .. string.format("%.1f", curr_wp.y) .. ") within " .. NEST_AVOIDANCE_DISTANCE .. " tiles of nest at (" .. string.format("%.1f", nest.position.x) .. "," .. string.format("%.1f", nest.position.y) .. ")")
+				-- logging.warn("Pathing", "  Iteration " .. iteration .. ": Waypoint " .. i .. " (" .. string.format("%.1f", curr_wp.x) .. "," .. string.format("%.1f", curr_wp.y) .. ") within " .. NEST_AVOIDANCE_DISTANCE .. " tiles of nest at (" .. string.format("%.1f", nest.position.x) .. "," .. string.format("%.1f", nest.position.y) .. ")")
 				
 				-- Find the previous safe waypoint
 				local prev_wp = new_waypoints[#new_waypoints] or {x = curr_wp.x - 10, y = curr_wp.y - 10}
@@ -646,10 +646,10 @@ local function insert_nest_detours(surface, waypoints)
 				local detour_point = calculate_nest_detour(surface, nest.position, prev_wp, next_wp, NEST_AVOIDANCE_DISTANCE)
 				
 				if detour_point then
-					logging.info("Pathing", "  Inserting detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ")")
+					-- logging.info("Pathing", "  Inserting detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ")")
 					table.insert(new_waypoints, detour_point)
 				else
-					logging.warn("Pathing", "  Failed to calculate detour point, keeping original waypoint")
+					-- logging.warn("Pathing", "  Failed to calculate detour point, keeping original waypoint")
 					table.insert(new_waypoints, curr_wp)
 				end
 			else
@@ -663,10 +663,10 @@ local function insert_nest_detours(surface, waypoints)
 		waypoints = new_waypoints
 		
 		if not violations_found then
-			logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": No violations found, done")
+			-- logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": No violations found, done")
 			break
 		else
-			logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": Violations found, checking again...")
+			-- logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": Violations found, checking again...")
 		end
 	end
 	
@@ -783,7 +783,7 @@ function pathing.handle_path_result(path_result)
 	local skipped_water = 0
 	local skipped_cliffs = 0
 	
-	logging.info("Pathing", "Processing " .. #waypoints .. " waypoints for spider " .. spider.unit_number .. " (can_water=" .. tostring(can_water) .. ", can_cliffs=" .. tostring(can_cliffs) .. ")")
+	-- logging.info("Pathing", "Processing " .. #waypoints .. " waypoints for spider " .. spider.unit_number .. " (can_water=" .. tostring(can_water) .. ", can_cliffs=" .. tostring(can_cliffs) .. ")")
 	
 	for i, waypoint in ipairs(waypoints) do
 		local waypoint_pos = waypoint.position
@@ -810,7 +810,7 @@ function pathing.handle_path_result(path_result)
 			end
 			
 			if is_on_water_1 or is_on_water_2 or is_on_water_3 or exact_tile_is_water then
-				logging.warn("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") on/near water - SKIPPED")
+				-- logging.warn("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") on/near water - SKIPPED")
 				skipped_water = skipped_water + 1
 				goto next_waypoint
 			end
@@ -818,13 +818,13 @@ function pathing.handle_path_result(path_result)
 		
 		-- Check if waypoint is near a corner cliff (only filter if spider CAN'T cross cliffs)
 		if not can_cliffs and is_near_cliff then
-			logging.warn("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") near corner cliff - SKIPPED")
+			-- logging.warn("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") near corner cliff - SKIPPED")
 			skipped_cliffs = skipped_cliffs + 1
 			goto next_waypoint
 		-- Allow waypoints that cross straight cliffs (larger spiders can do this)
 		elseif not can_cliffs and terrain.is_waypoint_crossing_straight_cliff(surface, waypoint_pos, prev_pos, next_pos, 2.5) then
 			-- This is OK - straight cliffs are easy to traverse
-			logging.debug("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") crossing straight cliff - OK")
+			-- logging.debug("Pathing", "  Waypoint " .. i .. " (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") crossing straight cliff - OK")
 		end
 		
 		-- Waypoint is safe, add it
@@ -833,7 +833,7 @@ function pathing.handle_path_result(path_result)
 		::next_waypoint::
 	end
 	
-	logging.info("Pathing", "Filtered waypoints: " .. #safe_waypoints .. " safe, " .. skipped_water .. " water, " .. skipped_cliffs .. " cliffs")
+	-- logging.info("Pathing", "Filtered waypoints: " .. #safe_waypoints .. " safe, " .. skipped_water .. " water, " .. skipped_cliffs .. " cliffs")
 	
 	-- If we filtered out all waypoints, cancel journey
 	if #safe_waypoints == 0 then
@@ -855,27 +855,27 @@ function pathing.handle_path_result(path_result)
 	
 	-- If simplification removed all waypoints, use original safe waypoints
 	if #simplified_waypoints == 0 then
-		logging.warn("Pathing", "Simplification removed all waypoints, using original filtered waypoints")
+		-- logging.warn("Pathing", "Simplification removed all waypoints, using original filtered waypoints")
 		simplified_waypoints = safe_waypoints
 	else
-		logging.info("Pathing", "Simplified waypoints: " .. #safe_waypoints .. " -> " .. #simplified_waypoints)
+		-- logging.info("Pathing", "Simplified waypoints: " .. #safe_waypoints .. " -> " .. #simplified_waypoints)
 	end
 	
 	-- Smooth waypoints by cutting corners for smoother paths
 	local smoothed_waypoints = smooth_waypoints(simplified_waypoints, spider.position)
-	logging.info("Pathing", "Smoothed waypoints: " .. #simplified_waypoints .. " -> " .. #smoothed_waypoints)
+	-- logging.info("Pathing", "Smoothed waypoints: " .. #simplified_waypoints .. " -> " .. #smoothed_waypoints)
 	
 	-- ITERATIVE APPROACH: Check for nest violations and insert detours, then re-smooth
-	logging.info("Pathing", "Checking for nest violations and inserting detours...")
+	-- logging.info("Pathing", "Checking for nest violations and inserting detours...")
 	local waypoints_with_detours = insert_nest_detours(surface, smoothed_waypoints)
 	
 	-- If detours were inserted, re-smooth the path (respecting locked detour points)
 	if #waypoints_with_detours ~= #smoothed_waypoints then
-		logging.info("Pathing", "Detours inserted (" .. #smoothed_waypoints .. " -> " .. #waypoints_with_detours .. "), re-smoothing path...")
+		-- logging.info("Pathing", "Detours inserted (" .. #smoothed_waypoints .. " -> " .. #waypoints_with_detours .. "), re-smoothing path...")
 		waypoints_with_detours = smooth_waypoints(waypoints_with_detours, spider.position)
-		logging.info("Pathing", "Re-smoothed waypoints: " .. #waypoints_with_detours)
+		-- logging.info("Pathing", "Re-smoothed waypoints: " .. #waypoints_with_detours)
 	else
-		logging.info("Pathing", "No detours needed, using smoothed waypoints")
+		-- logging.info("Pathing", "No detours needed, using smoothed waypoints")
 	end
 	
 	-- Apply final waypoints to autopilot
@@ -891,7 +891,7 @@ function pathing.handle_path_result(path_result)
 	-- Add final destination
 	spider.add_autopilot_destination(request_data.destination_pos)
 	
-	logging.info("Pathing", "Final path has " .. #waypoints_with_detours .. " waypoints")
+	-- logging.info("Pathing", "Final path has " .. #waypoints_with_detours .. " waypoints")
 	
 	-- Clean up
 	storage.path_requests[path_result.id] = nil

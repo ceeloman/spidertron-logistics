@@ -50,10 +50,10 @@ script.on_event(defines.events.on_gui_opened, function(event)
 		
 		-- Ensure requester has beacon assignment
 		if not requester_data.beacon_owner then
-			logging.warn("Beacon", "Requester opened but has no beacon_owner, assigning...")
+			-- logging.warn("Beacon", "Requester opened but has no beacon_owner, assigning...")
 			beacon_assignment.assign_chest_to_nearest_beacon(entity)
 			if requester_data.beacon_owner then
-				logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
+				-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 			else
 				logging.error("Beacon", "Failed to assign requester to any beacon!")
 			end
@@ -61,11 +61,11 @@ script.on_event(defines.events.on_gui_opened, function(event)
 			-- Verify beacon still exists and is valid
 			local beacon_data = storage.beacons[requester_data.beacon_owner]
 			if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
-				logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
+				-- logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
 				requester_data.beacon_owner = nil
 				beacon_assignment.assign_chest_to_nearest_beacon(entity)
 				if requester_data.beacon_owner then
-					logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
+					-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 				else
 					logging.error("Beacon", "Failed to reassign requester to any beacon!")
 				end
@@ -87,6 +87,20 @@ script.on_event(defines.events.on_gui_opened, function(event)
 	if entity.type == 'spider-vehicle' and entity.prototype.order ~= 'z[programmable]' then
 		local player = game.get_player(event.player_index)
 		if not player then return end
+		
+		-- Check if spider has trunk inventory
+		local trunk = entity.get_inventory(defines.inventory.spider_trunk)
+		if not trunk then
+			-- No trunk, don't show GUI
+			return
+		end
+		
+		-- Check if spider name contains "constructron" (case-insensitive)
+		local spider_name = entity.name:lower()
+		if spider_name:find("constructron") then
+			-- Has "constructron" in name, don't show GUI
+			return
+		end
 		
 		local spider_data = storage.spiders[entity.unit_number]
 		if not spider_data then
@@ -263,7 +277,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 						local requester_data = gui_data.last_opened_requester
 						local requester = requester_data.entity
 						
-						logging.info("GUI", "Setting request: " .. selected_item .. " x" .. quantity .. " for requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
+						-- logging.info("GUI", "Setting request: " .. selected_item .. " x" .. quantity .. " for requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
 						
 						if not requester_data.requested_items then
 							requester_data.requested_items = {}
@@ -288,10 +302,10 @@ script.on_event(defines.events.on_gui_click, function(event)
 						-- Ensure requester has valid beacon assignment
 						if requester and requester.valid then
 							if not requester_data.beacon_owner then
-								logging.warn("Beacon", "Requester has no beacon_owner, assigning to nearest...")
+								-- logging.warn("Beacon", "Requester has no beacon_owner, assigning to nearest...")
 								beacon_assignment.assign_chest_to_nearest_beacon(requester)
 								if requester_data.beacon_owner then
-									logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
+									-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 								else
 									logging.error("Beacon", "Failed to assign requester to any beacon!")
 								end
@@ -299,16 +313,16 @@ script.on_event(defines.events.on_gui_click, function(event)
 								-- Verify beacon still exists and is valid
 								local beacon_data = storage.beacons[requester_data.beacon_owner]
 								if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
-									logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
+									-- logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
 									requester_data.beacon_owner = nil
 									beacon_assignment.assign_chest_to_nearest_beacon(requester)
 									if requester_data.beacon_owner then
-										logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
+										-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 									else
 										logging.error("Beacon", "Failed to reassign requester to any beacon!")
 									end
 								else
-									logging.debug("Beacon", "Requester beacon " .. requester_data.beacon_owner .. " is valid")
+									-- logging.debug("Beacon", "Requester beacon " .. requester_data.beacon_owner .. " is valid")
 								end
 							end
 						end
@@ -433,14 +447,14 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 				local distance = utils.distance(spider.position, dump_target.position)
 				if distance <= 6 then
 					-- Spider is close enough, try to dump items
-					logging.info("Dump", "Spider " .. unit_number .. " is close to storage chest (distance: " .. string.format("%.2f", distance) .. "), attempting dump")
+					-- logging.info("Dump", "Spider " .. unit_number .. " is close to storage chest (distance: " .. string.format("%.2f", distance) .. "), attempting dump")
 					
 					-- Clear autopilot to ensure spider stops
 					if spider.autopilot_destinations and #spider.autopilot_destinations > 0 then
 						spider.autopilot_destination = nil
-						logging.info("Dump", "Cleared autopilot destination")
+						-- logging.info("Dump", "Cleared autopilot destination")
 					else
-						logging.info("Dump", "No autopilot destinations to clear")
+						-- logging.info("Dump", "No autopilot destinations to clear")
 					end
 					
 					-- Try to dump items
@@ -451,7 +465,7 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 						return
 					end
 					
-					logging.info("Dump", "Spider trunk found, iterating through " .. #trunk .. " slots")
+					-- logging.info("Dump", "Spider trunk found, iterating through " .. #trunk .. " slots")
 					
 					local dumped_any = false
 					local processed_items = {}  -- Track which items we've processed to avoid duplicates
@@ -466,12 +480,12 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 							-- Skip if we've already processed this item type
 							if processed_items[item_name] then goto next_slot end
 							
-							logging.info("Dump", "  Found stack " .. i .. ": " .. stack_count .. " " .. item_name)
+							-- logging.info("Dump", "  Found stack " .. i .. ": " .. stack_count .. " " .. item_name)
 							
 							-- Get chest inventory
 							local chest_inv = dump_target.get_inventory(defines.inventory.chest)
 							if not chest_inv then
-								logging.warn("Dump", "    Failed to get chest inventory")
+								-- logging.warn("Dump", "    Failed to get chest inventory")
 								goto next_slot
 							end
 							
@@ -479,13 +493,13 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 							local chest_has_item = chest_inv.get_item_count(item_name)
 							local empty_slots = chest_inv.count_empty_stacks(false, false)
 							
-							logging.info("Dump", "    Chest has " .. chest_has_item .. " " .. item_name .. ", " .. empty_slots .. " empty slots")
+							-- logging.info("Dump", "    Chest has " .. chest_has_item .. " " .. item_name .. ", " .. empty_slots .. " empty slots")
 							
 							-- Can insert if: chest has the item (can add to existing stacks) OR has empty slots
 							local can_insert = (chest_has_item > 0) or (empty_slots > 0)
 							
 							if not can_insert then
-								logging.warn("Dump", "    Cannot insert: chest has no " .. item_name .. " and no empty slots")
+								-- logging.warn("Dump", "    Cannot insert: chest has no " .. item_name .. " and no empty slots")
 								processed_items[item_name] = true
 								goto next_slot
 							end
@@ -494,11 +508,11 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 							local inserted = 0
 							
 							-- Method 1: Insert the stack object directly
-							logging.info("Dump", "    Trying chest_inv.insert(stack)")
+							-- logging.info("Dump", "    Trying chest_inv.insert(stack)")
 							local stack_count_before = stack.count
 							local stack_insert_result = chest_inv.insert(stack)
 							local stack_count_after = stack.count
-							logging.info("Dump", "    Insert returned: " .. stack_insert_result .. " (stack: " .. stack_count_before .. " -> " .. stack_count_after .. ")")
+							-- logging.info("Dump", "    Insert returned: " .. stack_insert_result .. " (stack: " .. stack_count_before .. " -> " .. stack_count_after .. ")")
 							
 							if stack_insert_result > 0 then
 								inserted = stack_insert_result
@@ -508,40 +522,40 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 									-- Stack wasn't fully consumed, remove the remainder
 									local to_remove = inserted - stack_consumed
 									local removed = spider.remove_item{name = item_name, count = to_remove}
-									logging.info("Dump", "    Stack consumed: " .. stack_consumed .. ", removed additional: " .. removed)
+									-- logging.info("Dump", "    Stack consumed: " .. stack_consumed .. ", removed additional: " .. removed)
 								else
-									logging.info("Dump", "    Stack was fully consumed automatically")
+									-- logging.info("Dump", "    Stack was fully consumed automatically")
 								end
-								logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name)
+								-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name)
 								dumped_any = true
 							else
 								-- Method 2: Insert by name and count
-								logging.info("Dump", "    Stack insert failed, trying chest_inv.insert{name, count}")
+								-- logging.info("Dump", "    Stack insert failed, trying chest_inv.insert{name, count}")
 								local name_insert_result = chest_inv.insert{name = item_name, count = stack_count}
-								logging.info("Dump", "    Insert returned: " .. name_insert_result)
+								-- logging.info("Dump", "    Insert returned: " .. name_insert_result)
 								
 								if name_insert_result > 0 then
 									inserted = name_insert_result
 									-- Remove exactly what was inserted from the spider
 									local removed = spider.remove_item{name = item_name, count = inserted}
-									logging.info("Dump", "    Removed from spider: " .. removed)
-									logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
+									-- logging.info("Dump", "    Removed from spider: " .. removed)
+									-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
 									dumped_any = true
 								else
 									-- Method 3: Entity insert
-									logging.info("Dump", "    Inventory insert failed, trying dump_target.insert")
+									-- logging.info("Dump", "    Inventory insert failed, trying dump_target.insert")
 									local entity_insert_result = dump_target.insert{name = item_name, count = stack_count}
-									logging.info("Dump", "    Insert returned: " .. entity_insert_result)
+									-- logging.info("Dump", "    Insert returned: " .. entity_insert_result)
 									
 									if entity_insert_result > 0 then
 										inserted = entity_insert_result
 										-- Remove exactly what was inserted from the spider
 										local removed = spider.remove_item{name = item_name, count = inserted}
-										logging.info("Dump", "    Removed from spider: " .. removed)
-										logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
+										-- logging.info("Dump", "    Removed from spider: " .. removed)
+										-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
 										dumped_any = true
 									else
-										logging.warn("Dump", "  ✗ All insert methods returned 0 for " .. item_name)
+										-- logging.warn("Dump", "  ✗ All insert methods returned 0 for " .. item_name)
 									end
 								end
 							end
@@ -564,12 +578,12 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 					
 					if not has_items then
 						-- No items left, done dumping
-						logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
+						-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
 						spider_data.dump_target = nil
 						journey.end_journey(unit_number, true)
 					elseif not dumped_any then
 						-- Couldn't dump anything, try to find another chest
-						logging.warn("Dump", "Spider " .. unit_number .. " couldn't dump items, trying to find another storage chest")
+						-- logging.warn("Dump", "Spider " .. unit_number .. " couldn't dump items, trying to find another storage chest")
 						spider_data.dump_target = nil
 						journey.attempt_dump_items(unit_number)
 					end
@@ -638,7 +652,7 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 						
 						-- If stuck for 2+ checks (10+ seconds), trigger repath
 						if spider_data.stuck_count >= 2 then
-							logging.warn("Stuck", "Spider " .. unit_number .. " appears stuck (hasn't moved " .. string.format("%.2f", distance_moved) .. " tiles in " .. ticks_since_last_check .. " ticks), attempting repath")
+							-- logging.warn("Stuck", "Spider " .. unit_number .. " appears stuck (hasn't moved " .. string.format("%.2f", distance_moved) .. " tiles in " .. ticks_since_last_check .. " ticks), attempting repath")
 							
 							-- Clear current path
 							if spider.autopilot_destinations and #spider.autopilot_destinations > 0 then
@@ -656,16 +670,16 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 							if destination then
 								local pathing_success = pathing.set_smart_destination(spider, destination.position, destination)
 								if pathing_success then
-									logging.info("Stuck", "Repath successful for spider " .. unit_number)
+									-- logging.info("Stuck", "Repath successful for spider " .. unit_number)
 									-- Reset stuck detection
 									spider_data.last_position = current_pos
 									spider_data.last_position_tick = current_tick
 									spider_data.stuck_count = 0
 								else
-									logging.warn("Stuck", "Repath failed for spider " .. unit_number .. ", will try again next cycle")
+									-- logging.warn("Stuck", "Repath failed for spider " .. unit_number .. ", will try again next cycle")
 								end
 							else
-								logging.warn("Stuck", "No valid destination for stuck spider " .. unit_number .. ", ending journey")
+								-- logging.warn("Stuck", "No valid destination for stuck spider " .. unit_number .. ", ending journey")
 								journey.end_journey(unit_number, true)
 							end
 						else
@@ -705,31 +719,31 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 	for _, spids in pairs(spiders_list) do total_spiders = total_spiders + #spids end
 	for _, provs in pairs(providers_list) do total_providers = total_providers + #provs end
 	
-	logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
+	-- logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
 	
 	for network_key, requesters in pairs(requests) do
-		logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
+		-- logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
 		
 		local providers_for_network = providers_list[network_key]
 		if not providers_for_network then 
-			logging.debug("Logistics", "Network " .. network_key .. " has no providers")
+			-- logging.debug("Logistics", "Network " .. network_key .. " has no providers")
 			goto next_network 
 		end
-		logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
+		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
 		
 		local spiders_on_network = spiders_list[network_key]
 		if not spiders_on_network or #spiders_on_network == 0 then 
-			logging.debug("Logistics", "Network " .. network_key .. " has no available spiders")
+			-- logging.debug("Logistics", "Network " .. network_key .. " has no available spiders")
 			goto next_network 
 		end
-		logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
+		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
 		
 		for _, item_request in ipairs(requesters) do
 			local item = item_request.requested_item
 			local requester_data = item_request.requester_data
 			if not item then goto next_requester end
 			
-			logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester_data.entity.position.x) .. "," .. math.floor(requester_data.entity.position.y) .. ")")
+			-- logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester_data.entity.position.x) .. "," .. math.floor(requester_data.entity.position.y) .. ")")
 			
 			local max = 0
 			local best_provider
@@ -780,26 +794,26 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 					incoming_items = requester_data.incoming_items
 				}
 				local provider = best_provider.entity
-				logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
-				logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
+				-- logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
+				-- logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
 				local assigned = logistics.assign_spider(spiders_on_network, temp_requester, best_provider, max)
 				if assigned then
-					logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
+					-- logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
 				else
-					logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
+					-- logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
 				end
 				if not assigned then
 					goto next_requester
 				end
 				if #spiders_on_network == 0 then
-					logging.debug("Logistics", "No more spiders available on network " .. network_key)
+					-- logging.debug("Logistics", "No more spiders available on network " .. network_key)
 					goto next_network
 				end
 			else
 				if best_provider == nil then
-					logging.debug("Logistics", "No provider found for " .. item)
+					-- logging.debug("Logistics", "No provider found for " .. item)
 				elseif max <= 0 then
-					logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
+					-- logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
 				end
 			end
 			
@@ -819,14 +833,14 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		return
 	elseif spider_data.status == constants.picking_up then
 		if not spider_data.requester_target or not spider_data.requester_target.valid then
-			logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: picking_up)")
+			-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: picking_up)")
 			journey.end_journey(unit_number, true)
 			return
 		end
 		goal = spider_data.provider_target
 	elseif spider_data.status == constants.dropping_off then
 		if not spider_data.requester_target or not spider_data.requester_target.valid then
-			logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: dropping_off)")
+			-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: dropping_off)")
 			journey.end_journey(unit_number, true)
 			return
 		end
@@ -844,7 +858,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		elseif goal.to_be_deconstructed() then reason = "goal marked for deconstruction"
 		elseif spider.surface ~= goal.surface then reason = "different surface"
 		end
-		logging.warn("Journey", "Spider " .. unit_number .. " cancelling journey: " .. reason .. " (status: " .. (spider_data and spider_data.status or "nil") .. ")")
+		-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling journey: " .. reason .. " (status: " .. (spider_data and spider_data.status or "nil") .. ")")
 		journey.end_journey(unit_number, true)
 		return
 	end
@@ -853,7 +867,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	-- Normal travel distance can be hundreds of tiles, so we use a much larger threshold
 	local distance_to_goal = utils.distance(spider.position, goal.position)
 	if distance_to_goal > 1000 then
-		logging.warn("Journey", "Spider " .. unit_number .. " cancelling journey: distance > 1000 (" .. string.format("%.2f", distance_to_goal) .. ") - spider likely lost (status: " .. (spider_data and spider_data.status or "nil") .. ")")
+		-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling journey: distance > 1000 (" .. string.format("%.2f", distance_to_goal) .. ") - spider likely lost (status: " .. (spider_data and spider_data.status or "nil") .. ")")
 		journey.end_journey(unit_number, true)
 		return
 	end
@@ -879,7 +893,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			spider.autopilot_destination = nil
 		end
 		
-		logging.info("Pickup", "Spider arrived at provider for " .. item .. " x" .. item_count .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+		-- logging.info("Pickup", "Spider arrived at provider for " .. item .. " x" .. item_count .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 		local provider_data = storage.providers[provider.unit_number]
 		local is_robot_chest = false
 		
@@ -909,7 +923,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		if already_had > item_count then already_had = item_count end
 		
 		if contains + already_had == 0 then
-			logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: no items available at provider (contains: " .. contains .. ", already_had: " .. already_had .. ")")
+			-- logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: no items available at provider (contains: " .. contains .. ", already_had: " .. already_had .. ")")
 			journey.end_journey(unit_number, true)
 			return
 		end
@@ -917,7 +931,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		local can_insert = min(contains - already_had, item_count)
 		local actually_inserted = can_insert <= 0 and 0 or spider.insert{name = item, count = can_insert}
 		if actually_inserted + already_had == 0 then
-			logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: failed to insert items (can_insert: " .. can_insert .. ", actually_inserted: " .. actually_inserted .. ", already_had: " .. already_had .. ")")
+			-- logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: failed to insert items (can_insert: " .. can_insert .. ", actually_inserted: " .. actually_inserted .. ", already_had: " .. already_had .. ")")
 			journey.end_journey(unit_number, true)
 			return
 		end
@@ -975,17 +989,17 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		
 		-- Only proceed to next destination if we actually have items
 		if spider_data.payload_item_count > 0 then
-			logging.info("Pickup", "Pickup successful: " .. spider_data.payload_item_count .. " items, setting destination to requester")
+			-- logging.info("Pickup", "Pickup successful: " .. spider_data.payload_item_count .. " items, setting destination to requester")
 			-- Set status to dropping_off and set destination to requester
 			spider_data.status = constants.dropping_off
 			local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
 			if not pathing_success then
-				logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
+				-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
 				journey.end_journey(unit_number, true)
 			end
 		else
 			-- No items picked up, end journey
-			logging.warn("Pickup", "No items picked up, ending journey")
+			-- logging.warn("Pickup", "No items picked up, ending journey")
 			journey.end_journey(unit_number, true)
 		end
 		
@@ -1003,7 +1017,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		if spider_data.requester_target and spider_data.requester_target.valid then
 			local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
 			if not pathing_success then
-				logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
+				-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
 				journey.end_journey(unit_number, true)
 			end
 		end
@@ -1012,7 +1026,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		local distance_to_requester = utils.distance(spider.position, requester.position)
 		if distance_to_requester > 6 then
 			-- Spider not close enough yet, wait for next command completion
-			logging.debug("Dropoff", "Spider " .. unit_number .. " not close enough to requester (distance: " .. string.format("%.2f", distance_to_requester) .. "), waiting...")
+			-- logging.debug("Dropoff", "Spider " .. unit_number .. " not close enough to requester (distance: " .. string.format("%.2f", distance_to_requester) .. "), waiting...")
 			return
 		end
 		
@@ -1021,7 +1035,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			spider.autopilot_destination = nil
 		end
 		
-		logging.info("Dropoff", "Spider arrived at requester for " .. item .. " x" .. item_count .. " at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
+		-- logging.info("Dropoff", "Spider arrived at requester for " .. item .. " x" .. item_count .. " at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
 		
 		-- Clear any remaining autopilot destinations to ensure spider stops
 		if spider.autopilot_destinations and #spider.autopilot_destinations > 0 then
@@ -1035,18 +1049,18 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		local actually_inserted = 0
 		if can_insert > 0 then
 			actually_inserted = requester.insert{name = item, count = can_insert}
-			logging.info("Dropoff", "  Inserted " .. actually_inserted .. " " .. item .. " into requester")
+			-- logging.info("Dropoff", "  Inserted " .. actually_inserted .. " " .. item .. " into requester")
 			
 			if actually_inserted > 0 then
 				-- Remove exactly what was inserted
 				local removed = spider.remove_item{name = item, count = actually_inserted}
-				logging.info("Dropoff", "  Removed " .. removed .. " " .. item .. " from spider")
+				-- logging.info("Dropoff", "  Removed " .. removed .. " " .. item .. " from spider")
 				
 				if removed > 0 then
 					requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
 					rendering.draw_deposit_icon(requester)
 				else
-					logging.warn("Dropoff", "  Failed to remove items from spider after insertion")
+					-- logging.warn("Dropoff", "  Failed to remove items from spider after insertion")
 				end
 			end
 		end
@@ -1081,7 +1095,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		-- Successfully dropped off, reset retry counter
 		spider_data.dropoff_retry_count = nil
 		
-		logging.info("Dropoff", "Dropoff successful: " .. actually_inserted .. " items delivered")
+		-- logging.info("Dropoff", "Dropoff successful: " .. actually_inserted .. " items delivered")
 		journey.end_journey(unit_number, true)
 		journey.deposit_already_had(spider_data)
 	elseif spider_data.status == constants.dumping_items then
@@ -1114,7 +1128,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		local contents = trunk.get_contents()
 		if not contents or next(contents) == nil then
 			-- No items left, done dumping
-			logging.info("Dump", "Spider " .. unit_number .. " finished dumping items")
+			-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping items")
 			spider_data.dump_target = nil
 			journey.end_journey(unit_number, true)
 			return
@@ -1149,19 +1163,19 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 					-- This is the same pattern used for dropping off at requesters
 					local inserted = dump_target.insert{name = item_name, count = spider_has}
 					
-					logging.info("Dump", "  Attempted to insert " .. spider_has .. " " .. item_name .. ", got " .. inserted)
+					-- logging.info("Dump", "  Attempted to insert " .. spider_has .. " " .. item_name .. ", got " .. inserted)
 					
 					if inserted > 0 then
 						-- Remove items from spider
 						local removed = spider.remove_item{name = item_name, count = inserted}
 						if removed > 0 then
 							dumped_any = true
-							logging.info("Dump", "Spider " .. unit_number .. " dumped " .. inserted .. " " .. item_name .. " to storage chest (removed " .. removed .. " from spider)")
+							-- logging.info("Dump", "Spider " .. unit_number .. " dumped " .. inserted .. " " .. item_name .. " to storage chest (removed " .. removed .. " from spider)")
 						else
-							logging.warn("Dump", "Spider " .. unit_number .. " inserted " .. inserted .. " " .. item_name .. " but failed to remove from spider (spider still has: " .. spider.get_item_count(item_name) .. ")")
+							-- logging.warn("Dump", "Spider " .. unit_number .. " inserted " .. inserted .. " " .. item_name .. " but failed to remove from spider (spider still has: " .. spider.get_item_count(item_name) .. ")")
 						end
 					else
-						logging.warn("Dump", "Spider " .. unit_number .. " failed to insert " .. item_name .. " into storage chest (spider has: " .. spider_has .. ", insert returned: " .. inserted .. ")")
+						-- logging.warn("Dump", "Spider " .. unit_number .. " failed to insert " .. item_name .. " into storage chest (spider has: " .. spider_has .. ", insert returned: " .. inserted .. ")")
 					end
 				end
 			end
@@ -1173,7 +1187,7 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			local remaining_contents = trunk.get_contents()
 			if not remaining_contents or next(remaining_contents) == nil then
 				-- All items dumped, done
-				logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
+				-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
 				spider_data.dump_target = nil
 				journey.end_journey(unit_number, true)
 			else
@@ -1238,7 +1252,7 @@ script.on_event(defines.events.on_entity_died, function(event)
 		-- Reassign all chests from this beacon to other beacons
 		local beacon_data = storage.beacons[unit_number]
 		if beacon_data and beacon_data.assigned_chests then
-			logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
+			-- logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
 			for _, chest_unit_number in ipairs(beacon_data.assigned_chests) do
 				local chest = nil
 				if storage.providers[chest_unit_number] then
@@ -1262,7 +1276,7 @@ script.on_event(defines.events.on_entity_died, function(event)
 		-- Clean up beacon assignments
 		storage.beacon_assignments[unit_number] = nil
 		storage.beacons[unit_number] = nil
-		logging.info("Beacon", "Beacon " .. unit_number .. " cleaned up")
+		-- logging.info("Beacon", "Beacon " .. unit_number .. " cleaned up")
 	end
 end)
 
@@ -1272,25 +1286,25 @@ local function built(event)
 	if entity.type == 'spider-vehicle' and entity.prototype.order ~= 'z[programmable]' then
 		registration.register_spider(entity)
 	elseif entity.name == constants.spidertron_requester_chest then
-		logging.info("Registration", "Registering requester chest at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
+		-- logging.info("Registration", "Registering requester chest at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
 		registration.register_requester(entity, event.tags)
 		local requester_data = storage.requesters[entity.unit_number]
 		if requester_data and requester_data.beacon_owner then
-			logging.info("Beacon", "Requester chest assigned to beacon " .. requester_data.beacon_owner)
+			-- logging.info("Beacon", "Requester chest assigned to beacon " .. requester_data.beacon_owner)
 		else
-			logging.warn("Beacon", "Requester chest NOT assigned to any beacon")
+			-- logging.warn("Beacon", "Requester chest NOT assigned to any beacon")
 		end
 	elseif entity.name == constants.spidertron_provider_chest then
-		logging.info("Registration", "Registering provider chest at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
+		-- logging.info("Registration", "Registering provider chest at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
 		registration.register_provider(entity)
 		local provider_data = storage.providers[entity.unit_number]
 		if provider_data and provider_data.beacon_owner then
-			logging.info("Beacon", "Provider chest assigned to beacon " .. provider_data.beacon_owner)
+			-- logging.info("Beacon", "Provider chest assigned to beacon " .. provider_data.beacon_owner)
 		else
-			logging.warn("Beacon", "Provider chest NOT assigned to any beacon")
+			-- logging.warn("Beacon", "Provider chest NOT assigned to any beacon")
 		end
 	elseif entity.name == constants.spidertron_logistic_beacon then
-		logging.info("Registration", "Registering beacon at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
+		-- logging.info("Registration", "Registering beacon at (" .. math.floor(entity.position.x) .. "," .. math.floor(entity.position.y) .. ")")
 		registration.register_beacon(entity)
 	end
 end

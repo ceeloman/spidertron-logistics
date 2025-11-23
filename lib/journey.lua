@@ -68,7 +68,7 @@ function journey.end_journey(unit_number, find_beacon)
 			local contents = trunk.get_contents()
 			if contents and next(contents) ~= nil then
 				-- Spider has items remaining, try to dump them
-				logging.warn("Journey", "Spider " .. unit_number .. " has items remaining after journey end, attempting to dump")
+				-- logging.warn("Journey", "Spider " .. unit_number .. " has items remaining after journey end, attempting to dump")
 				journey.attempt_dump_items(unit_number)
 				return  -- Don't set to idle, let dumping_items status handle it
 			end
@@ -172,7 +172,7 @@ function journey.attempt_dump_items(unit_number)
 	-- Get spider's network
 	local network = beacon_assignment.spidertron_network(spider)
 	if not network then
-		logging.warn("Dump", "Spider " .. unit_number .. " has no network, cannot find storage chest")
+		-- logging.warn("Dump", "Spider " .. unit_number .. " has no network, cannot find storage chest")
 		return false
 	end
 	
@@ -192,10 +192,10 @@ function journey.attempt_dump_items(unit_number)
 		to_be_deconstructed = false
 	}
 	
-	logging.info("Dump", "=== SEARCHING FOR STORAGE CHESTS ===")
-	logging.info("Dump", "Spider at (" .. math.floor(spider_pos.x) .. "," .. math.floor(spider_pos.y) .. ") on surface: " .. surface.name .. ", force: " .. spider.force.name)
-	logging.info("Dump", "Spider has " .. (contents and next(contents) and "items" or "no items") .. " in inventory")
-	logging.info("Dump", "Found " .. #storage_chests .. " storage chests on surface")
+	-- logging.info("Dump", "=== SEARCHING FOR STORAGE CHESTS ===")
+	-- logging.info("Dump", "Spider at (" .. math.floor(spider_pos.x) .. "," .. math.floor(spider_pos.y) .. ") on surface: " .. surface.name .. ", force: " .. spider.force.name)
+	-- logging.info("Dump", "Spider has " .. (contents and next(contents) and "items" or "no items") .. " in inventory")
+	-- logging.info("Dump", "Found " .. #storage_chests .. " storage chests on surface")
 	
 	-- Log what items the spider has
 	local item_list = {}
@@ -217,37 +217,37 @@ function journey.attempt_dump_items(unit_number)
 		end
 	end
 	if #item_list > 0 then
-		logging.info("Dump", "Spider inventory contents: " .. table.concat(item_list, ", "))
+		-- logging.info("Dump", "Spider inventory contents: " .. table.concat(item_list, ", "))
 	end
 	
 	for i, chest in ipairs(storage_chests) do
-		logging.info("Dump", "--- Checking storage chest #" .. i .. " at (" .. math.floor(chest.position.x) .. "," .. math.floor(chest.position.y) .. ") ---")
+		-- logging.info("Dump", "--- Checking storage chest #" .. i .. " at (" .. math.floor(chest.position.x) .. "," .. math.floor(chest.position.y) .. ") ---")
 		
 		-- Check if chest is on the same surface and force as the spider
-		logging.info("Dump", "  Surface check: chest=" .. chest.surface.name .. " vs spider=" .. surface.name .. " (match: " .. tostring(chest.surface == spider.surface) .. ")")
-		logging.info("Dump", "  Force check: chest=" .. chest.force.name .. " vs spider=" .. spider.force.name .. " (match: " .. tostring(chest.force == spider.force) .. ")")
+		-- logging.info("Dump", "  Surface check: chest=" .. chest.surface.name .. " vs spider=" .. surface.name .. " (match: " .. tostring(chest.surface == spider.surface) .. ")")
+		-- logging.info("Dump", "  Force check: chest=" .. chest.force.name .. " vs spider=" .. spider.force.name .. " (match: " .. tostring(chest.force == spider.force) .. ")")
 		
 		if chest.surface ~= spider.surface or chest.force ~= spider.force then
-			logging.warn("Dump", "  REJECTED: Storage chest is on different surface/force")
+			-- logging.warn("Dump", "  REJECTED: Storage chest is on different surface/force")
 			goto next_chest
 		end
-		logging.info("Dump", "  ✓ Same surface and force")
+		-- logging.info("Dump", "  ✓ Same surface and force")
 		
 		-- Check if chest is in a logistic network (robot chests need this)
 		local robot_network = chest.logistic_network
 		if not robot_network then 
-			logging.warn("Dump", "  REJECTED: Storage chest has no logistic network")
+			-- logging.warn("Dump", "  REJECTED: Storage chest has no logistic network")
 			goto next_chest 
 		end
-		logging.info("Dump", "  ✓ Chest is in logistic network")
+		-- logging.info("Dump", "  ✓ Chest is in logistic network")
 		
 		-- Get chest inventory
 		local chest_inventory = chest.get_inventory(defines.inventory.chest)
 		if not chest_inventory then 
-			logging.warn("Dump", "  REJECTED: Cannot get chest inventory")
+			-- logging.warn("Dump", "  REJECTED: Cannot get chest inventory")
 			goto next_chest 
 		end
-		logging.info("Dump", "  ✓ Chest inventory accessible")
+		-- logging.info("Dump", "  ✓ Chest inventory accessible")
 		
 		-- Check chest state
 		local chest_contents = chest_inventory.get_contents()
@@ -268,15 +268,15 @@ function journey.attempt_dump_items(unit_number)
 		-- get_bar() returns total slots including bar, so subtract 1 for actual capacity
 		local chest_capacity = (chest_inventory.get_bar() or 0) - 1
 		if chest_capacity < 0 then chest_capacity = 0 end
-		logging.info("Dump", "  Chest state: " .. chest_item_count .. " items, capacity: " .. chest_capacity .. " slots")
+		-- logging.info("Dump", "  Chest state: " .. chest_item_count .. " items, capacity: " .. chest_capacity .. " slots")
 		
 		-- Check if chest has item filters (storage chests can have filters)
 		local has_filters = false
 		if chest_inventory.is_filtered and chest_inventory.is_filtered() then
 			has_filters = true
-			logging.info("Dump", "  Chest has item filters set")
+			-- logging.info("Dump", "  Chest has item filters set")
 		else
-			logging.info("Dump", "  Chest has no item filters")
+			-- logging.info("Dump", "  Chest has no item filters")
 		end
 		
 		-- Check if chest can accept items
@@ -288,11 +288,11 @@ function journey.attempt_dump_items(unit_number)
 		-- Check if chest has empty slots (not item count vs capacity)
 		local empty_slots = chest_inventory.count_empty_stacks(false, false)  -- Don't include filtered or bar
 		local has_space = empty_slots > 0
-		logging.info("Dump", "  Chest has " .. empty_slots .. " empty slots out of " .. chest_capacity .. " total slots (" .. chest_item_count .. " items)")
+		-- logging.info("Dump", "  Chest has " .. empty_slots .. " empty slots out of " .. chest_capacity .. " total slots (" .. chest_item_count .. " items)")
 		
 		-- If chest is empty and has no filters, it can accept any item
 		if chest_item_count == 0 and not has_filters and chest_capacity > 0 then
-			logging.info("Dump", "  ✓ Chest is empty with no filters - can accept any item")
+			-- logging.info("Dump", "  ✓ Chest is empty with no filters - can accept any item")
 			can_accept = true
 			-- List all items spider has
 			for item_name, count in pairs(contents) do
@@ -314,7 +314,7 @@ function journey.attempt_dump_items(unit_number)
 			end
 		elseif has_space and not has_filters then
 			-- Chest has space and no filters - can accept items
-			logging.info("Dump", "  ✓ Chest has space and no filters - can accept items")
+			-- logging.info("Dump", "  ✓ Chest has space and no filters - can accept items")
 			can_accept = true
 			-- List all items spider has
 			for item_name, count in pairs(contents) do
@@ -336,7 +336,7 @@ function journey.attempt_dump_items(unit_number)
 			end
 		else
 			-- Chest might have filters or be full - need to check each item
-			logging.info("Dump", "  Checking individual items (chest has filters or is partially full)")
+			-- logging.info("Dump", "  Checking individual items (chest has filters or is partially full)")
 			for item_name, count in pairs(contents) do
 				if not item_name or type(item_name) ~= "string" or item_name == "" then goto next_item end
 				
@@ -366,15 +366,15 @@ function journey.attempt_dump_items(unit_number)
 						if matches_filter then
 							can_accept = true
 							table.insert(accepted_items, item_name)
-							logging.info("Dump", "    ✓ Item " .. item_name .. " matches a filter")
+							-- logging.info("Dump", "    ✓ Item " .. item_name .. " matches a filter")
 						else
-							logging.warn("Dump", "    ✗ Item " .. item_name .. " does not match any filter")
+							-- logging.warn("Dump", "    ✗ Item " .. item_name .. " does not match any filter")
 						end
 					elseif has_space then
 						-- No filters and has space - can accept
 						can_accept = true
 						table.insert(accepted_items, item_name)
-						logging.info("Dump", "    ✓ Item " .. item_name .. " can be accepted (no filters, has space)")
+						-- logging.info("Dump", "    ✓ Item " .. item_name .. " can be accepted (no filters, has space)")
 					end
 				end
 				::next_item::
@@ -382,17 +382,17 @@ function journey.attempt_dump_items(unit_number)
 		end
 		
 		if not can_accept then 
-			logging.warn("Dump", "  REJECTED: Storage chest cannot accept any items from spider")
+			-- logging.warn("Dump", "  REJECTED: Storage chest cannot accept any items from spider")
 			goto next_chest 
 		end
-		logging.info("Dump", "  ✓ Chest can accept items: " .. table.concat(accepted_items, ", "))
+		-- logging.info("Dump", "  ✓ Chest can accept items: " .. table.concat(accepted_items, ", "))
 		
 		-- Calculate distance
 		local distance = utils.distance(spider_pos, chest.position)
 		if not nearest_storage or distance < nearest_distance then
 			nearest_storage = chest
 			nearest_distance = distance
-			logging.debug("Dump", "Found candidate storage chest at (" .. math.floor(chest.position.x) .. "," .. math.floor(chest.position.y) .. ") distance " .. string.format("%.2f", distance))
+			-- logging.debug("Dump", "Found candidate storage chest at (" .. math.floor(chest.position.x) .. "," .. math.floor(chest.position.y) .. ") distance " .. string.format("%.2f", distance))
 		end
 		
 		::next_chest::
@@ -400,12 +400,12 @@ function journey.attempt_dump_items(unit_number)
 	
 	if nearest_storage then
 		-- Found a storage chest, set destination
-		logging.info("Dump", "Spider " .. unit_number .. " dumping items to storage chest at (" .. math.floor(nearest_storage.position.x) .. "," .. math.floor(nearest_storage.position.y) .. ")")
+		-- logging.info("Dump", "Spider " .. unit_number .. " dumping items to storage chest at (" .. math.floor(nearest_storage.position.x) .. "," .. math.floor(nearest_storage.position.y) .. ")")
 		spider_data.status = constants.dumping_items
 		spider_data.dump_target = nearest_storage
 		local pathing_success = pathing.set_smart_destination(spider, nearest_storage.position, nearest_storage)
 		if not pathing_success then
-			logging.warn("Dump", "Pathfinding to storage chest failed for spider " .. unit_number)
+			-- logging.warn("Dump", "Pathfinding to storage chest failed for spider " .. unit_number)
 			-- Will show flashing icon instead
 			spider_data.dump_target = nil
 			return false
@@ -413,7 +413,7 @@ function journey.attempt_dump_items(unit_number)
 		return true
 	else
 		-- No storage chest found, will show flashing icon
-		logging.warn("Dump", "No storage chest found for spider " .. unit_number .. " to dump items")
+		-- logging.warn("Dump", "No storage chest found for spider " .. unit_number .. " to dump items")
 		spider_data.status = constants.dumping_items
 		spider_data.dump_target = nil
 		return false

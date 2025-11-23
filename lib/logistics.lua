@@ -58,7 +58,7 @@ function logistics.spiders()
 		available_count = available_count + #spids
 	end
 	
-	logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
+	-- logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
 	
 	return valid
 end
@@ -276,17 +276,17 @@ end
 function logistics.assign_spider(spiders, requester_data, provider_data, can_provide)
 	local provider = provider_data.entity
 	if not provider.valid then 
-		logging.warn("Assignment", "Provider entity is invalid")
+		-- logging.warn("Assignment", "Provider entity is invalid")
 		return false 
 	end
 	local item = requester_data.requested_item
 	local requester = requester_data.entity
 	
-	logging.info("Assignment", "=== ASSIGNING SPIDER JOB ===")
-	logging.info("Assignment", "Item: " .. item .. " x" .. can_provide)
-	logging.info("Assignment", "Provider: " .. (provider_data.is_robot_chest and "ROBOT CHEST" or "CUSTOM CHEST") .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
-	logging.info("Assignment", "Requester: at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
-	logging.info("Assignment", "Available spiders: " .. #spiders)
+	-- logging.info("Assignment", "=== ASSIGNING SPIDER JOB ===")
+	-- logging.info("Assignment", "Item: " .. item .. " x" .. can_provide)
+	-- logging.info("Assignment", "Provider: " .. (provider_data.is_robot_chest and "ROBOT CHEST" or "CUSTOM CHEST") .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+	-- logging.info("Assignment", "Requester: at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
+	-- logging.info("Assignment", "Available spiders: " .. #spiders)
 	
 	local position = provider.position
 	local x, y = position.x, position.y
@@ -330,16 +330,16 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	}
 	
 	if #provider_near_nests > 0 then
-		logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		-- logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
 	if #requester_near_nests > 0 then
-		logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		-- logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
-	logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
+	-- logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
 	
 	for i, canidate in ipairs(spiders) do
 		-- Check if spider can insert item into trunk inventory
@@ -358,11 +358,11 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 				end
 				collision_mask_str = table.concat(mask_parts, ", ")
 			end
-			logging.info("Assignment", "Spider " .. canidate.unit_number .. " (" .. canidate.name .. "): can_water=" .. tostring(can_water) .. ", collision_mask=[" .. collision_mask_str .. "]")
+			-- logging.info("Assignment", "Spider " .. canidate.unit_number .. " (" .. canidate.name .. "): can_water=" .. tostring(can_water) .. ", collision_mask=[" .. collision_mask_str .. "]")
 			
 			-- Skip spiders that can't traverse water if destination is on water
 			if (provider_is_water or requester_is_water) and not can_water then
-				logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
+				-- logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
 				goto next_spider
 			end
 			
@@ -373,20 +373,20 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 				spider = canidate
 				best_distance = dist
 				spider_index = i
-				logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
+				-- logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
 			end
 		else
-			logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
+			-- logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
 		end
 		::next_spider::
 	end
 	if not spider then 
-		logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
+		-- logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
 		return false 
 	end
 	
-	logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
-	logging.info("Assignment", "Spider current position: (" .. math.floor(spider.position.x) .. "," .. math.floor(spider.position.y) .. ")")
+	-- logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
+	-- logging.info("Assignment", "Spider current position: (" .. math.floor(spider.position.x) .. "," .. math.floor(spider.position.y) .. ")")
 	
 	local spider_data = storage.spiders[spider.unit_number]
 	local amount = requester_data.real_amount
@@ -400,7 +400,7 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 			provider_data.allocated_items = {}
 		end
 		provider_data.allocated_items[item] = (provider_data.allocated_items[item] or 0) + can_provide
-		logging.debug("Assignment", "Allocated " .. can_provide .. " " .. item .. " from custom provider")
+		-- logging.debug("Assignment", "Allocated " .. can_provide .. " " .. item .. " from custom provider")
 	end
 	
 	if not requester_data.incoming_items then
@@ -416,15 +416,15 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	spider_data.payload_item = item
 	spider_data.payload_item_count = can_provide
 	
-	logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
-	logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+	-- logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
+	-- logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 	
 	-- Set destination using pathing
 	local pathing_success = pathing.set_smart_destination(spider, provider.position, provider)
 	
 	if not pathing_success then
 		-- Pathfinding request failed - cancel the assignment
-		logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
+		-- logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
 		-- Revert spider status
 		spider_data.status = constants.idle
 		spider_data.requester_target = nil
@@ -447,8 +447,8 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 		return false
 	end
 	
-	logging.info("Assignment", "=== SPIDER JOB ASSIGNED SUCCESSFULLY ===")
-	logging.info("Assignment", "Spider " .. spider.unit_number .. " will pick up " .. can_provide .. " " .. item .. " and deliver to requester")
+	-- logging.info("Assignment", "=== SPIDER JOB ASSIGNED SUCCESSFULLY ===")
+	-- logging.info("Assignment", "Spider " .. spider.unit_number .. " will pick up " .. can_provide .. " " .. item .. " and deliver to requester")
 
 	remove(spiders, spider_index)
 	return true
