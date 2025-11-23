@@ -2,6 +2,7 @@
 
 local constants = require('lib.constants')
 local utils = require('lib.utils')
+local logging = require('lib.logging')
 
 local beacon_assignment = {}
 
@@ -12,7 +13,10 @@ function beacon_assignment.find_nearest_beacon(surface, position, force)
 		to_be_deconstructed = false
 	}
 	
-	if #beacons == 0 then return nil end
+	if #beacons == 0 then
+		logging.debug("Beacon", "No beacons found on surface for position (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
+		return nil
+	end
 	
 	local nearest = beacons[1]
 	local nearest_distance = utils.distance(position, nearest.position)
@@ -26,6 +30,7 @@ function beacon_assignment.find_nearest_beacon(surface, position, force)
 		end
 	end
 	
+	logging.debug("Beacon", "Found nearest beacon " .. nearest.unit_number .. " at distance " .. string.format("%.2f", nearest_distance))
 	return nearest
 end
 
@@ -82,23 +87,16 @@ function beacon_assignment.assign_all_chests_to_beacon(beacon)
 		to_be_deconstructed = false
 	}
 	
-	-- Assign all chests to this beacon (unlimited range)
+	-- Reassign all chests to their nearest beacon (which might be this one)
+	-- This ensures chests get assigned to the closest beacon, not just this one
 	for _, provider in ipairs(providers) do
-		local provider_data = storage.providers[provider.unit_number]
-		if provider_data then
-			beacon_assignment.unassign_chest_from_beacon(provider.unit_number)
-			beacon_assignment.assign_chest_to_beacon(provider.unit_number, beacon_unit_number)
-			provider_data.beacon_owner = beacon_unit_number
-		end
+		-- Use assign_chest_to_nearest_beacon to find the actual nearest beacon
+		beacon_assignment.assign_chest_to_nearest_beacon(provider)
 	end
 	
 	for _, requester in ipairs(requesters) do
-		local requester_data = storage.requesters[requester.unit_number]
-		if requester_data then
-			beacon_assignment.unassign_chest_from_beacon(requester.unit_number)
-			beacon_assignment.assign_chest_to_beacon(requester.unit_number, beacon_unit_number)
-			requester_data.beacon_owner = beacon_unit_number
-		end
+		-- Use assign_chest_to_nearest_beacon to find the actual nearest beacon
+		beacon_assignment.assign_chest_to_nearest_beacon(requester)
 	end
 end
 
@@ -107,8 +105,21 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest)
 	local force = chest.force
 	local position = chest.position
 	
+	logging.debug("Beacon", "Assigning chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ") to nearest beacon")
+	
 	local nearest_beacon = beacon_assignment.find_nearest_beacon(surface, position, force)
 	if nearest_beacon then
+		-- Ensure beacon is registered in storage
+		if not storage.beacons[nearest_beacon.unit_number] then
+			logging.info("Beacon", "Registering unregistered beacon " .. nearest_beacon.unit_number)
+			-- Register the beacon if it's not already registered
+			storage.beacons[nearest_beacon.unit_number] = {
+				entity = nearest_beacon,
+				assigned_chests = {}
+			}
+			script.register_on_object_destroyed(nearest_beacon)
+		end
+		
 		local chest_unit_number = chest.unit_number
 		beacon_assignment.unassign_chest_from_beacon(chest_unit_number)
 		beacon_assignment.assign_chest_to_beacon(chest_unit_number, nearest_beacon.unit_number)
@@ -116,9 +127,13 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest)
 		-- Update chest data
 		if storage.providers[chest_unit_number] then
 			storage.providers[chest_unit_number].beacon_owner = nearest_beacon.unit_number
+			logging.info("Beacon", "Provider chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
 		elseif storage.requesters[chest_unit_number] then
 			storage.requesters[chest_unit_number].beacon_owner = nearest_beacon.unit_number
+			logging.info("Beacon", "Requester chest " .. chest_unit_number .. " assigned to beacon " .. nearest_beacon.unit_number)
 		end
+	else
+		logging.warn("Beacon", "No beacon found for chest " .. chest.unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 	end
 end
 

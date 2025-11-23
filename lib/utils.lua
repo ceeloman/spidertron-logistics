@@ -33,7 +33,8 @@ end
 
 function utils.stack_size(item)
 	if not item or item == '' or type(item) ~= 'string' then return 1 end
-	local success, prototype = pcall(function() return game.item_prototypes[item] end)
+	-- Use prototypes.item[item_name] in Factorio 2.0
+	local success, prototype = pcall(function() return prototypes.item[item] end)
 	if not success or not prototype then return 1 end
 	return prototype.stack_size
 end

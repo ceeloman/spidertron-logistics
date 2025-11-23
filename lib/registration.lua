@@ -21,12 +21,22 @@ end
 function registration.register_requester(requester, tags)
 	-- Migrate old format to new format if needed
 	local requested_items = {}
-	if tags and tags.requested_item then
+	if tags and tags.requested_items then
+		-- New format: multiple items (from blueprint or tags)
+		if type(tags.requested_items) == "table" then
+			-- Convert from list format to table format
+			for _, item_data in ipairs(tags.requested_items) do
+				if item_data.name and item_data.count then
+					requested_items[item_data.name] = item_data.count
+				end
+			end
+		else
+			-- Already in table format
+			requested_items = tags.requested_items
+		end
+	elseif tags and tags.requested_item then
 		-- Old format: single item
 		requested_items[tags.requested_item] = tags.request_size or 0
-	elseif tags and tags.requested_items then
-		-- New format: multiple items
-		requested_items = tags.requested_items
 	end
 	
 	storage.requesters[requester.unit_number] = {
@@ -50,7 +60,11 @@ function registration.register_spider(spider)
 		requester_target = nil,
 		provider_target = nil,
 		payload_item = nil,
-		payload_item_count = 0
+		payload_item_count = 0,
+		-- Stuck detection
+		last_position = nil,
+		last_position_tick = nil,
+		stuck_count = 0
 	}
 	script.register_on_object_destroyed(spider)
 end
