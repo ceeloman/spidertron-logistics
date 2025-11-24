@@ -194,5 +194,26 @@ function rendering.draw_dump_failed_icon(spider, spider_data)
 	end
 end
 
+-- Draw error text above an entity to indicate a problem
+function rendering.draw_error_text(target, message, offset)
+	if not target or not target.valid then return nil end
+	
+	offset = offset or {0, -1.5}  -- Default offset above entity
+	
+	local draw_text = global_rendering.draw_text
+	
+	return draw_text{
+		text = message,
+		surface = target.surface,
+		target = target,
+		target_offset = offset,
+		color = {r = 1.0, g = 0.2, b = 0.2},  -- Red color for errors
+		scale = 1.2,
+		font = "default-game",
+		time_to_live = 300,  -- Show for 5 seconds
+		alignment = "center"
+	}
+end
+
 return rendering
 

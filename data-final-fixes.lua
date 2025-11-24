@@ -6,42 +6,42 @@ local function find_first_spider_vehicle_technology()
 	local spider_technologies = {}
 	local debug_info = {}
 	
-	log("=== SPIDERTRON DETECTION DEBUG ===")
-	log("Looping through all spider-vehicle entities...")
+	-- log("=== SPIDERTRON DETECTION DEBUG ===")
+	-- log("Looping through all spider-vehicle entities...")
 	
 	-- Loop through all spider-vehicle entities
 	if not data.raw["spider-vehicle"] then
-		log("WARNING: No spider-vehicle entities found in data.raw")
+		-- log("WARNING: No spider-vehicle entities found in data.raw")
 		return nil
 	end
 	
 	for entity_name, entity_data in pairs(data.raw["spider-vehicle"]) do
-		log("Checking spider-vehicle entity: " .. entity_name)
+		-- log("Checking spider-vehicle entity: " .. entity_name)
 		
 		-- Skip constructron and base spiderbot (but allow mk variants like spiderbot-mk2)
 		local lower_name = entity_name:lower()
 		if lower_name:find("constructron") or lower_name == "spiderbot" then
-			log("  -> Skipping (constructron or base spiderbot)")
+			-- log("  -> Skipping (constructron or base spiderbot)")
 			goto next_entity
 		end
 		
 		-- Check if entity has inventory (trunk) - simple check
 		local has_inventory = entity_data.inventory_size or entity_data.trunk_inventory_size
 		if not has_inventory then
-			log("  -> Skipping (no inventory_size or trunk_inventory_size property)")
+			-- log("  -> Skipping (no inventory_size or trunk_inventory_size property)")
 			goto next_entity
 		end
 		
-		log("  -> Has inventory, processing...")
+		-- log("  -> Has inventory, processing...")
 		
 		-- Use entity name directly as item name (spidertron entity -> spidertron item)
 		local item_name = entity_name
-		log("  -> Using entity name as item name: " .. item_name)
+		-- log("  -> Using entity name as item name: " .. item_name)
 		
 		-- Verify item exists
 		local item_prototype = data.raw.item[item_name] or data.raw["item-with-entity-data"][item_name]
 		if not item_prototype then
-			log("    -> WARNING: Item prototype not found in either 'item' or 'item-with-entity-data': " .. item_name)
+			-- log("    -> WARNING: Item prototype not found in either 'item' or 'item-with-entity-data': " .. item_name)
 			goto next_entity
 		end
 		
@@ -66,12 +66,12 @@ local function find_first_spider_vehicle_technology()
 			
 			if recipe_produces_item then
 				table.insert(recipes_for_item, recipe_name)
-				log("    -> Found recipe that produces item: " .. recipe_name)
+				-- log("    -> Found recipe that produces item: " .. recipe_name)
 			end
 		end
 		
 		if #recipes_for_item == 0 then
-			log("    -> WARNING: No recipes found that produce item: " .. item_name)
+			-- log("    -> WARNING: No recipes found that produce item: " .. item_name)
 			goto next_entity
 		end
 		
@@ -83,7 +83,7 @@ local function find_first_spider_vehicle_technology()
 					if effect.type == "unlock-recipe" then
 						for _, recipe_name in ipairs(recipes_for_item) do
 							if effect.recipe == recipe_name then
-								log("    -> Found technology that unlocks recipe: " .. tech_name .. " (unlocks recipe: " .. recipe_name .. ")")
+								-- log("    -> Found technology that unlocks recipe: " .. tech_name .. " (unlocks recipe: " .. recipe_name .. ")")
 								local prereq_count = tech.prerequisites and #tech.prerequisites or 0
 								
 								-- Store this technology
@@ -114,14 +114,14 @@ local function find_first_spider_vehicle_technology()
 		::next_entity::
 	end
 	
-	log("Spider technologies found: " .. table_size(spider_technologies))
+	-- log("Spider technologies found: " .. table_size(spider_technologies))
 	
 	-- Find the technology with the fewest prerequisites (earliest unlock)
 	local first_tech = nil
 	local min_prerequisites = math.huge
 	
 	for tech_name, tech_data in pairs(spider_technologies) do
-		log("Evaluating tech: " .. tech_name .. " (prereqs: " .. tech_data.prerequisite_count .. ")")
+		-- log("Evaluating tech: " .. tech_name .. " (prereqs: " .. tech_data.prerequisite_count .. ")")
 		if tech_data.prerequisite_count < min_prerequisites then
 			min_prerequisites = tech_data.prerequisite_count
 			first_tech = tech_name
@@ -129,12 +129,12 @@ local function find_first_spider_vehicle_technology()
 	end
 	
 	if first_tech then
-		log("Selected first spider tech: " .. first_tech .. " with " .. min_prerequisites .. " prerequisites")
+		-- log("Selected first spider tech: " .. first_tech .. " with " .. min_prerequisites .. " prerequisites")
 	else
-		log("WARNING: No spider technology found!")
+		-- log("WARNING: No spider technology found!")
 	end
 	
-	log("=== END SPIDERTRON DETECTION DEBUG ===")
+	-- log("=== END SPIDERTRON DETECTION DEBUG ===")
 	
 	-- Store debug info for runtime access
 	_G.spidertron_detection_debug = debug_info
@@ -184,13 +184,13 @@ if data.raw.technology["spidertron-logistic-system"] then
 	local prerequisites = {}
 	if first_spider_tech then
 		table.insert(prerequisites, first_spider_tech)
-		log("Setting spidertron-logistic-system prerequisite to: " .. first_spider_tech)
+		-- log("Setting spidertron-logistic-system prerequisite to: " .. first_spider_tech)
 	else
-		log("WARNING: No spider tech found, keeping default prerequisite")
+		-- log("WARNING: No spider tech found, keeping default prerequisite")
 	end
 	if adv_circuit_tech then
 		table.insert(prerequisites, adv_circuit_tech)
-		log("Adding advanced-circuit technology as prerequisite: " .. adv_circuit_tech)
+		-- log("Adding advanced-circuit technology as prerequisite: " .. adv_circuit_tech)
 		
 		-- Get the advanced-circuit technology's cost and triple it
 		local prereq_tech = data.raw.technology[adv_circuit_tech]
@@ -215,21 +215,21 @@ if data.raw.technology["spidertron-logistic-system"] then
 				time = prereq_tech.unit.time or 30
 			}
 			
-			log("Tripled advanced-circuit prerequisite cost: " .. prereq_tech.unit.count .. " -> " .. tripled_count)
-			local ingredient_str = ""
-			for _, ing in ipairs(tripled_ingredients) do
-				ingredient_str = ingredient_str .. ing[1] .. " x" .. ing[2] .. ", "
-			end
-			log("Ingredients: " .. ingredient_str)
+			-- log("Tripled advanced-circuit prerequisite cost: " .. prereq_tech.unit.count .. " -> " .. tripled_count)
+			-- local ingredient_str = ""
+			-- for _, ing in ipairs(tripled_ingredients) do
+			-- 	ingredient_str = ingredient_str .. ing[1] .. " x" .. ing[2] .. ", "
+			-- end
+			-- log("Ingredients: " .. ingredient_str)
 		else
-			log("WARNING: Could not get advanced-circuit technology unit data")
+			-- log("WARNING: Could not get advanced-circuit technology unit data")
 		end
 	end
 	
 	if #prerequisites > 0 then
 		tech.prerequisites = prerequisites
 	else
-		log("WARNING: No prerequisites set for spidertron-logistic-system")
+		-- log("WARNING: No prerequisites set for spidertron-logistic-system")
 	end
 end
 

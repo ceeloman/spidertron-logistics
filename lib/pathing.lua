@@ -4,6 +4,7 @@
 local terrain = require('lib.terrain')
 local constants = require('lib.constants')
 local logging = require('lib.logging')
+local rendering = require('lib.rendering')
 
 local pathing = {}
 
@@ -124,11 +125,11 @@ end
 -- Request pathfinding and queue waypoints
 function pathing.set_smart_destination(spider, destination_pos, destination_entity)
 	if not spider or not spider.valid then 
-		game.print("[Pathing] ERROR: Invalid spider")
+		logging.error("Pathing", "Invalid spider")
 		return false 
 	end
 	if not destination_pos then 
-		game.print("[Pathing] ERROR: No destination position")
+		logging.error("Pathing", "No destination position")
 		return false 
 	end
 	
@@ -737,8 +738,8 @@ function pathing.handle_path_result(path_result)
 	if not path_result.path then
 		-- Path not found - cancel journey
 		local spider_data = storage.spiders[spider.unit_number]
-		if spider_data then
-			game.print("[Pathing] No path found for spider " .. spider.unit_number .. ", cancelling journey")
+		if spider_data and spider and spider.valid then
+			rendering.draw_error_text(spider, "No path found!", {0, -2.0})
 			spider_data.status = constants.idle
 			spider_data.requester_target = nil
 			spider_data.provider_target = nil
@@ -754,8 +755,8 @@ function pathing.handle_path_result(path_result)
 	if not waypoints or #waypoints == 0 then
 		-- No waypoints - cancel journey
 		local spider_data = storage.spiders[spider.unit_number]
-		if spider_data then
-			game.print("[Pathing] No waypoints in path for spider " .. spider.unit_number .. ", cancelling journey")
+		if spider_data and spider and spider.valid then
+			rendering.draw_error_text(spider, "No waypoints!", {0, -2.0})
 			spider_data.status = constants.idle
 			spider_data.requester_target = nil
 			spider_data.provider_target = nil
@@ -839,7 +840,7 @@ function pathing.handle_path_result(path_result)
 	if #safe_waypoints == 0 then
 		local spider_data = storage.spiders[spider.unit_number]
 		if spider_data then
-			game.print("[Pathing] All waypoints filtered out for spider " .. spider.unit_number .. " (water/cliffs), cancelling journey")
+			rendering.draw_error_text(spider, "Path blocked!", {0, -2.0})
 			spider_data.status = constants.idle
 			spider_data.requester_target = nil
 			spider_data.provider_target = nil

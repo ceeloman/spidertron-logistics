@@ -55,7 +55,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 			if requester_data.beacon_owner then
 				-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 			else
-				logging.error("Beacon", "Failed to assign requester to any beacon!")
+				rendering.draw_error_text(entity, "No beacon found!")
 			end
 		else
 			-- Verify beacon still exists and is valid
@@ -67,7 +67,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 				if requester_data.beacon_owner then
 					-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 				else
-					logging.error("Beacon", "Failed to reassign requester to any beacon!")
+					rendering.draw_error_text(entity, "No beacon found!")
 				end
 			end
 		end
@@ -307,7 +307,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 								if requester_data.beacon_owner then
 									-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 								else
-									logging.error("Beacon", "Failed to assign requester to any beacon!")
+									rendering.draw_error_text(requester, "No beacon found!")
 								end
 							else
 								-- Verify beacon still exists and is valid
@@ -319,7 +319,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 									if requester_data.beacon_owner then
 										-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 									else
-										logging.error("Beacon", "Failed to reassign requester to any beacon!")
+										rendering.draw_error_text(requester, "No beacon found!")
 									end
 								else
 									-- logging.debug("Beacon", "Requester beacon " .. requester_data.beacon_owner .. " is valid")
@@ -1011,16 +1011,6 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 				if allocated_items[item] <= 0 then allocated_items[item] = nil end
 			end
 		end
-		
-		spider_data.status = constants.dropping_off
-		-- Set destination to requester now that we have items
-		if spider_data.requester_target and spider_data.requester_target.valid then
-			local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
-			if not pathing_success then
-				-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
-				journey.end_journey(unit_number, true)
-			end
-		end
 	elseif spider_data.status == constants.dropping_off then
 		-- Verify spider is actually close enough to the requester
 		local distance_to_requester = utils.distance(spider.position, requester.position)
@@ -1194,31 +1184,34 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 				-- Still have items, but chest might be full - try to find another storage chest
 				-- Or continue to current one if it can still accept items
 				local can_accept_more = false
-				for item_name, count in pairs(remaining_contents) do
-					-- Validate item_name is a valid string
-					if not item_name or type(item_name) ~= "string" or item_name == "" then goto next_remaining_item end
-					
-					local item_count = 0
-					if type(count) == "number" then
-						item_count = count
-					elseif type(count) == "table" then
-						for quality, qty in pairs(count) do
-							if type(qty) == "number" then
-								item_count = item_count + qty
+				local chest_inventory = dump_target.get_inventory(defines.inventory.chest)
+				if chest_inventory then
+					for item_name, count in pairs(remaining_contents) do
+						-- Validate item_name is a valid string
+						if not item_name or type(item_name) ~= "string" or item_name == "" then goto next_remaining_item end
+						
+						local item_count = 0
+						if type(count) == "number" then
+							item_count = count
+						elseif type(count) == "table" then
+							for quality, qty in pairs(count) do
+								if type(qty) == "number" then
+									item_count = item_count + qty
+								end
 							end
 						end
-					end
-					
-					if item_count > 0 then
-						local success, can_insert_result = pcall(function()
-							return chest_inventory.can_insert({name = item_name, count = 1})
-						end)
-						if success and type(can_insert_result) == "number" and can_insert_result > 0 then
-							can_accept_more = true
-							break
+						
+						if item_count > 0 then
+							local success, can_insert_result = pcall(function()
+								return chest_inventory.can_insert({name = item_name, count = 1})
+							end)
+							if success and type(can_insert_result) == "number" and can_insert_result > 0 then
+								can_accept_more = true
+								break
+							end
 						end
+						::next_remaining_item::
 					end
-					::next_remaining_item::
 				end
 				
 				if not can_accept_more then
@@ -1416,26 +1409,6 @@ local function setup()
 	
 	-- Register all commands
 	debug_commands.register_all()
-	
-	-- Print spider detection debug info
-	if _G.spidertron_detection_debug then
-		for _, player in pairs(game.players) do
-			if player and player.valid then
-				player.print("=== Spidertron Detection Debug ===")
-				player.print("Found " .. #_G.spidertron_detection_debug .. " spider technologies:")
-				for i, info in ipairs(_G.spidertron_detection_debug) do
-					player.print(string.format("  %d. Item: %s, Entity: %s, Recipe: %s, Tech: %s (prereqs: %d)", 
-						i, info.item, info.entity, info.recipe, info.technology, info.prereq_count))
-				end
-				if _G.first_spider_tech_result then
-					player.print("Selected first spider tech: " .. _G.first_spider_tech_result)
-				else
-					player.print("WARNING: No spider technology was found!")
-				end
-				player.print("Check factorio-current.log for detailed debug output")
-			end
-		end
-	end
 end
 
 -- Track selected entities for connection line rendering
