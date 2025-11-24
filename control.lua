@@ -1416,6 +1416,26 @@ local function setup()
 	
 	-- Register all commands
 	debug_commands.register_all()
+	
+	-- Print spider detection debug info
+	if _G.spidertron_detection_debug then
+		for _, player in pairs(game.players) do
+			if player and player.valid then
+				player.print("=== Spidertron Detection Debug ===")
+				player.print("Found " .. #_G.spidertron_detection_debug .. " spider technologies:")
+				for i, info in ipairs(_G.spidertron_detection_debug) do
+					player.print(string.format("  %d. Item: %s, Entity: %s, Recipe: %s, Tech: %s (prereqs: %d)", 
+						i, info.item, info.entity, info.recipe, info.technology, info.prereq_count))
+				end
+				if _G.first_spider_tech_result then
+					player.print("Selected first spider tech: " .. _G.first_spider_tech_result)
+				else
+					player.print("WARNING: No spider technology was found!")
+				end
+				player.print("Check factorio-current.log for detailed debug output")
+			end
+		end
+	end
 end
 
 -- Track selected entities for connection line rendering

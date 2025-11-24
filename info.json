@@ -1,15 +1,13 @@
 {
   "name": "spidertron-logistics",
-  "version": "2.2.4",
+  "version": "3.0.0",
   "title": "Spidertron Logistics System",
-  "author": "notnotmelon",
+  "author": "ceeloman",
   "homepage": "https://github.com/notnotmelon/spidertron-logistics-system",
   "description": "Adds Spidertron requester and provider depots. Allows you to create a fully automated Spidertron logistics system. UPS optimized.",
   "factorio_version": "2.0",
   "dependencies": [
     "base",
-    "? equipment-gantry",
-    "? Insectitron",
-    "? spidertrontiers-community-updates"
+    "? equipment-gantry"
   ]
 }

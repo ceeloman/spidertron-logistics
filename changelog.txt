@@ -1,4 +1,52 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.0.0
+  Features:
+    - Changed requester and provider chest recipes to use basic materials (steel-plate, electronic-circuit, advanced-circuit) instead of requester-chest/storage-chest and spidertron-remote
+    - Removed spidertron-remote requirement from logistic beacon recipe
+    - Moved logistic beacon recipe unlock to advanced-electronics technology
+    - Removed "logistic-system" prerequisite from spidertron-logistic-system technology
+    - Activate Spider logistics with a toggle in their inventory
+  Compatibility:
+    - Added dynamic detection of first spider vehicle technology for better mod compatibility
+    - Removed hardcoded mod compatibility code for Insectitron and spidertrontiers-community-updates (now handled dynamically)
+      - Technology should be available to unluck after advanced-electronics and the earliest Spider-vehicle unlock
+  Code Structure:
+    - Major refactor: modularized codebase into lib/ directory with separate modules for beacon assignment, GUI, journey management, logistics, pathfinding, registration, rendering, terrain, and utilities
+    - Split data.lua into separate files: data/entities.lua, data/items.lua, data/recipes.lua, data/technology.lua
+    - Improved code organization and maintainability
+  Pathfinding & Terrain:
+    - Added intelligent pathfinding system with water traversal detection based on spider leg collision masks
+    - Implemented cliff detection and avoidance for small spiders (hopefully)
+    - Added terrain awareness to avoid dangerous areas (enemy nests & water for non-water-capable spiders)
+    - Enhanced pathfinding to handle long-distance travel with waypoint system
+  GUI & User Experience:
+    - Improved requester chest GUI with multi-item request support
+    - Added item selector modal with quantity slider
+    - Added spidertron toggle button in GUI to activate/deactivate logistics
+  Logistics & Assignment:
+    - Added robot logistic chests (storage-chest, active-provider-chest, passive-provider-chest) as providers
+    - Improved beacon assignment system with validity checks and automatic reassignment
+    - Enhanced item management with retry logic for pickup and dropoff operations
+    - Added incoming items tracking to prevent over-allocation
+    - Improved spider assignment algorithm to consider water traversal capabilities
+  Performance:
+    - Optimized logging system (commented out excessive debug logs for better performance)
+    - Improved update cycles and reduced unnecessary processing
+  Graphics:
+    - Updated spidertron logistic beacon graphics and icons
+    - Adjusted collision and selection boxes for better usability
+    - Enhanced animation settings
+  Bugfixes:
+    - Fixed beacon assignment issues when beacons are destroyed
+    - Improved handling of invalid entities and edge cases
+    - Added retry logic for failed item pickups and dropoffs
+    - Fixed GUI issues with item quantity display
+  Other:
+    - Added comprehensive logging system (lib/logging.lua)
+    - Added debug commands for spider management
+    - Added PROJECT_PLAN.md documentation
+    - Improved error handling and validation throughout
+---------------------------------------------------------------------------------------------------
 Version: 2.2.4
 Date: 2025-02-25
   Locale:

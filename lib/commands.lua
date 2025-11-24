@@ -381,6 +381,135 @@ function debug_commands.register_all()
 	if not success then
 		-- Command already exists, skip registration
 	end
+
+	-- Command to test spidertron items_to_place_this
+	success, err = pcall(function()
+		commands.add_command("test_spidertron", "Tests spidertron entity items_to_place_this", function(event)
+		local player = game.get_player(event.player_index)
+		if not player or not player.valid then return end
+		
+		player.print("=== Spidertron Detection Test ===")
+		
+		-- Try different ways to access spidertron
+		local spidertron_prototype = nil
+		local access_method = nil
+		
+		-- Try prototypes.entity["spidertron"]
+		local success, result = pcall(function()
+			return prototypes.entity["spidertron"]
+		end)
+		if success and result then
+			spidertron_prototype = result
+			access_method = "prototypes.entity[\"spidertron\"]"
+		end
+		
+		-- Try prototypes["spider-vehicle"]["spidertron"]
+		if not spidertron_prototype then
+			success, result = pcall(function()
+				return prototypes["spider-vehicle"]["spidertron"]
+			end)
+			if success and result then
+				spidertron_prototype = result
+				access_method = "prototypes[\"spider-vehicle\"][\"spidertron\"]"
+			end
+		end
+		
+		-- Try prototypes.entity.spidertron (without quotes)
+		if not spidertron_prototype then
+			success, result = pcall(function()
+				return prototypes.entity.spidertron
+			end)
+			if success and result then
+				spidertron_prototype = result
+				access_method = "prototypes.entity.spidertron"
+			end
+		end
+		
+		if not spidertron_prototype then
+			player.print("WARNING: spidertron prototype not found")
+			player.print("Tried: prototypes.entity[\"spidertron\"], prototypes[\"spider-vehicle\"][\"spidertron\"], prototypes.entity.spidertron")
+			return
+		end
+		
+		player.print("Found spidertron via: " .. access_method)
+		
+		-- Check entity type
+		player.print("Entity type: " .. tostring(spidertron_prototype.type))
+		
+		-- Check if it has a trunk using get_inventory_size()
+		local trunk_size = spidertron_prototype.get_inventory_size(defines.inventory.spider_trunk)
+		if trunk_size and trunk_size > 0 then
+			player.print("  -> Has spider_trunk inventory: " .. trunk_size)
+		else
+			player.print("  -> WARNING: No spider_trunk inventory found (size: " .. tostring(trunk_size) .. ")")
+		end
+		
+		-- Get items_to_place_this
+		local items_to_place = spidertron_prototype.items_to_place_this
+		if not items_to_place then
+			player.print("  -> WARNING: No items_to_place_this property found")
+			player.print("  -> Available prototype keys:")
+			for key, value in pairs(spidertron_prototype) do
+				if type(key) == "string" then
+					local value_type = type(value)
+					if value_type == "table" then
+						player.print("    - " .. key .. " (table, size: " .. (value[1] and #value or "unknown") .. ")")
+					else
+						player.print("    - " .. key .. " (" .. value_type .. ")")
+					end
+				end
+			end
+			return
+		end
+		
+		player.print("  -> Found items_to_place_this (type: " .. type(items_to_place) .. ", size: " .. #items_to_place .. ")")
+		
+		-- Process each item
+		for i, item_entry in ipairs(items_to_place) do
+			player.print("  -> Item entry #" .. i .. " (type: " .. type(item_entry) .. ")")
+			
+			local item_name = nil
+			
+			-- Handle different ItemToPlace formats
+			if type(item_entry) == "string" then
+				item_name = item_entry
+				player.print("    -> String format: " .. item_name)
+			elseif type(item_entry) == "table" then
+				player.print("    -> Table format, keys: " .. table.concat(get_table_keys(item_entry), ", "))
+				item_name = item_entry.name or item_entry[1]
+				if item_entry.name then
+					player.print("    -> Using .name: " .. item_entry.name)
+				elseif item_entry[1] then
+					player.print("    -> Using [1]: " .. item_entry[1])
+				end
+			end
+			
+			if item_name and type(item_name) == "string" then
+				-- Verify item exists
+				local item_prototype = prototypes.item[item_name]
+				if item_prototype then
+					player.print("    -> Item prototype found: " .. item_name)
+				else
+					player.print("    -> WARNING: Item prototype not found: " .. item_name)
+				end
+			else
+				player.print("    -> WARNING: Could not extract item name")
+			end
+		end
+		end)
+	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
+
+	-- Helper function to get table keys
+	function get_table_keys(t)
+		local keys = {}
+		for k, _ in pairs(t) do
+			table.insert(keys, tostring(k))
+		end
+		return keys
+	end
 end
 
 	return debug_commands

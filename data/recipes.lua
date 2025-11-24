@@ -3,8 +3,9 @@ data:extend{
 		type = 'recipe',
 		name = 'spidertron-requester-chest',
 		ingredients = {
-			{type = 'item', name = 'requester-chest', amount = 4},
-			{type = 'item', name = 'spidertron-remote', amount = 1}
+			{type = 'item', name = 'steel-plate', amount = 40},
+			{type = 'item', name = 'electronic-circuit', amount = 4},
+			{type = 'item', name = 'advanced-circuit', amount = 4}
 		},
 		energy_required = 4,
 		results = {{type = 'item', name = 'spidertron-requester-chest', amount = 1}},
@@ -14,8 +15,9 @@ data:extend{
 		type = 'recipe',
 		name = 'spidertron-provider-chest',
 		ingredients = {
-			{type = 'item', name = 'storage-chest', amount = 4},
-			{type = 'item', name = 'spidertron-remote', amount = 1}
+			{type = 'item', name = 'steel-plate', amount = 40},
+			{type = 'item', name = 'electronic-circuit', amount = 4},
+			{type = 'item', name = 'advanced-circuit', amount = 4}
 		},
 		energy_required = 4,
 		results = {{type = 'item', name = 'spidertron-provider-chest', amount = 1}},
