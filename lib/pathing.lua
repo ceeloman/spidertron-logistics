@@ -9,10 +9,8 @@ local rendering = require('lib.rendering')
 local pathing = {}
 
 -- Check if spider can traverse water/lava
--- IMPORTANT: Water traversal is determined by the SPIDER LEG collision mask, not the spider body!
--- Water tiles have "player" in their collision mask layers.
--- If spider legs have "player" in their collision mask, they will collide with water and cannot traverse it.
--- If spider legs do NOT have "player" in their collision mask, they can traverse water.
+-- Water traversal depends on leg collision mask, not body
+-- Legs with "player" layer collide with water (water tiles use "player" layer)
 function pathing.can_spider_traverse_water(spider)
 	if not spider or not spider.valid then return false end
 	
@@ -137,7 +135,7 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 	local force = spider.force
 	local start_pos = spider.position
 	
-	-- Debug: Check if destination is on water
+	-- Check if destination is on water
 	local dest_tile = surface.get_tile(math.floor(destination_pos.x), math.floor(destination_pos.y))
 	local is_water = false
 	if dest_tile and dest_tile.valid then
@@ -176,13 +174,6 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 	
 	-- Get collision mask for pathfinding
 	local collision_mask = get_path_collision_mask(spider)
-	
-	-- DEBUG: Log pathfinding request details
-	-- logging.info("Pathing", "Setting path for spider " .. spider.unit_number .. " (" .. spider.name .. ")")
-	-- logging.info("Pathing", "  Start: (" .. string.format("%.2f", start_pos.x) .. "," .. string.format("%.2f", start_pos.y) .. ")")
-	-- logging.info("Pathing", "  Goal: (" .. string.format("%.2f", destination_pos.x) .. "," .. string.format("%.2f", destination_pos.y) .. ")")
-	-- logging.info("Pathing", "  Distance: " .. string.format("%.2f", distance))
-	-- logging.info("Pathing", "  Destination on water: " .. tostring(is_water))
 	
 	-- Check if path will cross water
 	local path_crosses_water = false
@@ -276,9 +267,8 @@ local function calculate_angle(p1, p2, p3)
 	return angle
 end
 
--- Simplify waypoints with adaptive spacing based on terrain difficulty and path curvature
--- Uses larger spacing for straight/diagonal paths, smaller spacing for turns
--- IMPORTANT: Also filters out any water waypoints if spider can't traverse water
+-- Simplify waypoints: wider spacing on straight paths, tighter on turns
+-- Filters water waypoints if spider can't traverse water
 local function simplify_waypoints(surface, waypoints, start_pos, can_water, can_cliffs)
 	if not waypoints or #waypoints == 0 then
 		return {}
@@ -438,9 +428,7 @@ local function simplify_waypoints(surface, waypoints, start_pos, can_water, can_
 	return simplified
 end
 
--- Smooth waypoints by cutting corners - places waypoints at intermediate positions
--- to create smoother, curved paths instead of sharp 90-degree turns
--- IMPORTANT: Respects locked waypoints and does not smooth them
+-- Smooth waypoints by cutting corners (skips locked waypoints)
 local function smooth_waypoints(waypoints, start_pos)
 	if not waypoints or #waypoints < 2 then
 		return waypoints
@@ -536,9 +524,7 @@ local function smooth_waypoints(waypoints, start_pos)
 	return smoothed
 end
 
--- Calculate perpendicular detour point around a nest
--- Returns the detour point that's exactly DETOUR_DISTANCE tiles from nest
--- Chooses the shorter arc (left or right side of path)
+-- Calculate detour point around nest, choosing shorter side of path
 local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_waypoint, DETOUR_DISTANCE)
 	-- Calculate the path direction vector (from prev to next)
 	local path_dx = next_waypoint.x - prev_waypoint.x
@@ -593,8 +579,7 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 	end
 end
 
--- Check waypoints for nest proximity and insert detour points if needed
--- Returns modified waypoints with detours inserted
+-- Insert detour waypoints around nearby enemy nests
 local function insert_nest_detours(surface, waypoints)
 	local NEST_AVOIDANCE_DISTANCE = 80  -- Stay at least 40 tiles from nests
 	local MAX_ITERATIONS = 3  -- Prevent infinite loops

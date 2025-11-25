@@ -423,9 +423,13 @@ script.on_event(defines.events.on_script_path_request_finished, function(event)
 	pathing.handle_path_result(event)
 end)
 
+-- Helper function to get spidertron's logistic requests (uses utils function)
+local function get_spider_logistic_requests(spider)
+	return utils.get_spider_logistic_requests(spider)
+end
+
 -- Main logistics update loop
 script.on_nth_tick(constants.update_cooldown, function(event)
-	-- TOP PRIORITY: Handle spiders that need to dump items (failed deliveries)
 	-- Check all spiders in dumping_items status
 	for unit_number, spider_data in pairs(storage.spiders) do
 		if spider_data.status == constants.dumping_items then
@@ -457,6 +461,9 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 						-- logging.info("Dump", "No autopilot destinations to clear")
 					end
 					
+					-- Get spidertron's logistic requests to avoid dumping requested items
+					local logistic_requests = get_spider_logistic_requests(spider)
+
 					-- Try to dump items
 					-- Iterate through inventory slots directly instead of using get_contents()
 					local trunk = spider.get_inventory(defines.inventory.spider_trunk)
@@ -464,106 +471,78 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 						journey.end_journey(unit_number, true)
 						return
 					end
-					
+
 					-- logging.info("Dump", "Spider trunk found, iterating through " .. #trunk .. " slots")
-					
+
 					local dumped_any = false
-					local processed_items = {}  -- Track which items we've processed to avoid duplicates
-					
-					-- Iterate through all inventory slots
+					local processed_items = {}  -- Track which items we've already decided on
+					local item_excess = {}  -- Cache the excess amount for each item
+
+					-- First pass: calculate excess for each item type
+					for i = 1, #trunk do
+						local stack = trunk[i]
+						if stack and stack.valid_for_read and stack.count > 0 then
+							local item_name = stack.name
+							
+							-- Skip if we've already calculated excess for this item
+							if processed_items[item_name] then goto next_calc_slot end
+							
+							-- Get total count of this item in spider
+							local total_count = spider.get_item_count(item_name)
+							local requested_count = logistic_requests[item_name] or 0
+							
+							if requested_count > 0 and total_count <= requested_count then
+								-- Keep all of this item - it's requested and we don't have excess
+								item_excess[item_name] = 0
+								processed_items[item_name] = true
+							elseif requested_count > 0 then
+								-- Have excess beyond what's requested
+								item_excess[item_name] = total_count - requested_count
+							else
+								-- Not requested at all - dump everything
+								item_excess[item_name] = total_count
+							end
+							
+							::next_calc_slot::
+						end
+					end
+
+					-- Second pass: actually dump the excess items
+					local dumped_counts = {}
 					for i = 1, #trunk do
 						local stack = trunk[i]
 						if stack and stack.valid_for_read and stack.count > 0 then
 							local item_name = stack.name
 							local stack_count = stack.count
 							
-							-- Skip if we've already processed this item type
-							if processed_items[item_name] then goto next_slot end
+							-- Check if we have excess to dump
+							local excess = item_excess[item_name] or 0
+							if excess <= 0 then goto next_dump_slot end
 							
-							-- logging.info("Dump", "  Found stack " .. i .. ": " .. stack_count .. " " .. item_name)
+							-- Check how much we've already dumped
+							local already_dumped = dumped_counts[item_name] or 0
+							local can_dump = excess - already_dumped
+							
+							if can_dump <= 0 then goto next_dump_slot end
+							
+							-- Limit to what we can actually dump from this stack
+							local to_dump = math.min(stack_count, can_dump)
 							
 							-- Get chest inventory
 							local chest_inv = dump_target.get_inventory(defines.inventory.chest)
-							if not chest_inv then
-								-- logging.warn("Dump", "    Failed to get chest inventory")
-								goto next_slot
-							end
+							if not chest_inv then goto next_dump_slot end
 							
-							-- Check if chest can accept items
-							local chest_has_item = chest_inv.get_item_count(item_name)
-							local empty_slots = chest_inv.count_empty_stacks(false, false)
+							-- Try to insert
+							local inserted = chest_inv.insert{name = item_name, count = to_dump}
 							
-							-- logging.info("Dump", "    Chest has " .. chest_has_item .. " " .. item_name .. ", " .. empty_slots .. " empty slots")
-							
-							-- Can insert if: chest has the item (can add to existing stacks) OR has empty slots
-							local can_insert = (chest_has_item > 0) or (empty_slots > 0)
-							
-							if not can_insert then
-								-- logging.warn("Dump", "    Cannot insert: chest has no " .. item_name .. " and no empty slots")
-								processed_items[item_name] = true
-								goto next_slot
-							end
-							
-							-- Try to insert the stack
-							local inserted = 0
-							
-							-- Method 1: Insert the stack object directly
-							-- logging.info("Dump", "    Trying chest_inv.insert(stack)")
-							local stack_count_before = stack.count
-							local stack_insert_result = chest_inv.insert(stack)
-							local stack_count_after = stack.count
-							-- logging.info("Dump", "    Insert returned: " .. stack_insert_result .. " (stack: " .. stack_count_before .. " -> " .. stack_count_after .. ")")
-							
-							if stack_insert_result > 0 then
-								inserted = stack_insert_result
-								-- Check if stack was automatically consumed
-								local stack_consumed = stack_count_before - stack_count_after
-								if stack_consumed < inserted then
-									-- Stack wasn't fully consumed, remove the remainder
-									local to_remove = inserted - stack_consumed
-									local removed = spider.remove_item{name = item_name, count = to_remove}
-									-- logging.info("Dump", "    Stack consumed: " .. stack_consumed .. ", removed additional: " .. removed)
-								else
-									-- logging.info("Dump", "    Stack was fully consumed automatically")
-								end
-								-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name)
+							if inserted > 0 then
+								local removed = spider.remove_item{name = item_name, count = inserted}
 								dumped_any = true
-							else
-								-- Method 2: Insert by name and count
-								-- logging.info("Dump", "    Stack insert failed, trying chest_inv.insert{name, count}")
-								local name_insert_result = chest_inv.insert{name = item_name, count = stack_count}
-								-- logging.info("Dump", "    Insert returned: " .. name_insert_result)
-								
-								if name_insert_result > 0 then
-									inserted = name_insert_result
-									-- Remove exactly what was inserted from the spider
-									local removed = spider.remove_item{name = item_name, count = inserted}
-									-- logging.info("Dump", "    Removed from spider: " .. removed)
-									-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
-									dumped_any = true
-								else
-									-- Method 3: Entity insert
-									-- logging.info("Dump", "    Inventory insert failed, trying dump_target.insert")
-									local entity_insert_result = dump_target.insert{name = item_name, count = stack_count}
-									-- logging.info("Dump", "    Insert returned: " .. entity_insert_result)
-									
-									if entity_insert_result > 0 then
-										inserted = entity_insert_result
-										-- Remove exactly what was inserted from the spider
-										local removed = spider.remove_item{name = item_name, count = inserted}
-										-- logging.info("Dump", "    Removed from spider: " .. removed)
-										-- logging.info("Dump", "  ✓ Successfully dumped " .. inserted .. " " .. item_name .. " (removed " .. removed .. " from spider)")
-										dumped_any = true
-									else
-										-- logging.warn("Dump", "  ✗ All insert methods returned 0 for " .. item_name)
-									end
-								end
+								dumped_counts[item_name] = (dumped_counts[item_name] or 0) + inserted
 							end
 							
-							-- Mark this item as processed
-							processed_items[item_name] = true
+							::next_dump_slot::
 						end
-						::next_slot::
 					end
 					
 					-- Check if done dumping
@@ -578,14 +557,35 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 					
 					if not has_items then
 						-- No items left, done dumping
-						-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
 						spider_data.dump_target = nil
 						journey.end_journey(unit_number, true)
 					elseif not dumped_any then
-						-- Couldn't dump anything, try to find another chest
-						-- logging.warn("Dump", "Spider " .. unit_number .. " couldn't dump items, trying to find another storage chest")
-						spider_data.dump_target = nil
-						journey.attempt_dump_items(unit_number)
+						-- Couldn't dump anything - check if we have any dumpable items left
+						local has_dumpable = false
+						
+						for i = 1, #trunk do
+							local stack = trunk[i]
+							if stack and stack.valid_for_read and stack.count > 0 then
+								local item_name = stack.name
+								local total_count = spider.get_item_count(item_name)
+								local requested_count = logistic_requests[item_name] or 0
+								
+								if requested_count == 0 or total_count > requested_count then
+									has_dumpable = true
+									break
+								end
+							end
+						end
+						
+						if has_dumpable then
+							-- Try to find another chest
+							spider_data.dump_target = nil
+							journey.attempt_dump_items(unit_number)
+						else
+							-- No dumpable items, done
+							spider_data.dump_target = nil
+							journey.end_journey(unit_number, true)
+						end
 					end
 				end
 			end
@@ -594,19 +594,25 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 		end
 	end
 	
-	-- Re-validate beacon assignments periodically to ensure all chests have owners
-	-- Only do this every 60 ticks (once per second) to avoid performance issues
-	if event.tick % 60 == 0 then
-		for _, requester_data in pairs(storage.requesters) do
-			if requester_data.entity and requester_data.entity.valid then
-				if not requester_data.beacon_owner then
-					beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
-				else
-					-- Verify beacon still exists and is valid
-					local beacon_data = storage.beacons[requester_data.beacon_owner]
-					if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
-						requester_data.beacon_owner = nil
+	-- Re-validate beacon assignments periodically
+	-- Only check a subset of chests each tick to spread the load
+	-- Check all chests over ~10 seconds instead of all at once every second
+	if event.tick % 10 == 0 then
+		local check_interval = 600  -- Check each chest every 10 seconds (600 ticks)
+		local chest_index = (event.tick / 10) % check_interval
+		
+		-- Check requesters
+		for unit_number, requester_data in pairs(storage.requesters) do
+			if (unit_number % check_interval) == chest_index then
+				if requester_data.entity and requester_data.entity.valid then
+					if not requester_data.beacon_owner then
 						beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+					else
+						local beacon_data = storage.beacons[requester_data.beacon_owner]
+						if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
+							requester_data.beacon_owner = nil
+							beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+						end
 					end
 				end
 			end
@@ -1108,6 +1114,9 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			spider.autopilot_destination = nil
 		end
 		
+		-- Get spidertron's logistic requests to avoid dumping requested items
+		local logistic_requests = get_spider_logistic_requests(spider)
+		
 		-- Try to dump items
 		local trunk = spider.get_inventory(defines.inventory.spider_trunk)
 		if not trunk then
@@ -1118,54 +1127,60 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		local contents = trunk.get_contents()
 		if not contents or next(contents) == nil then
 			-- No items left, done dumping
-			-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping items")
 			spider_data.dump_target = nil
 			journey.end_journey(unit_number, true)
 			return
 		end
 		
 		-- Try to insert items into storage chest
-		-- Use the entity's insert method, not the inventory's (like we do for requester)
 		local dumped_any = false
-		for item_name, count in pairs(contents) do
-			-- Validate item_name
-			if not item_name or type(item_name) ~= "string" or item_name == "" then goto next_dump_item end
-			
+		for item_name, item_data in pairs(contents) do
+			-- Handle new format
+			local actual_item_name = item_name
 			local item_count = 0
-			if type(count) == "number" then
-				item_count = count
-			elseif type(count) == "table" then
-				-- Handle ItemWithQualityCounts format - sum all qualities
-				for quality, qty in pairs(count) do
+			
+			if type(item_data) == "table" and item_data.name then
+				actual_item_name = item_data.name
+				item_count = item_data.count or 0
+			elseif type(item_data) == "number" then
+				item_count = item_data
+			elseif type(item_data) == "table" then
+				for quality, qty in pairs(item_data) do
 					if type(qty) == "number" then
 						item_count = item_count + qty
 					end
 				end
 			end
 			
-			if item_count > 0 then
-				-- Get how many items the spider actually has
-				local spider_has = spider.get_item_count(item_name)
-				if spider_has > item_count then spider_has = item_count end
+			if not actual_item_name or actual_item_name == "" or item_count <= 0 then
+				goto next_dump_item
+			end
+			
+			-- Get how many items the spider actually has
+			local spider_has = spider.get_item_count(actual_item_name)
+			if spider_has > item_count then spider_has = item_count end
+			
+			-- Check if this item is requested
+			local requested_count = logistic_requests[actual_item_name] or 0
+			if requested_count > 0 then
+				-- Only dump excess
+				if spider_has <= requested_count then
+					goto next_dump_item
+				else
+					spider_has = spider_has - requested_count
+					if spider_has <= 0 then
+						goto next_dump_item
+					end
+				end
+			end
+			
+			if spider_has > 0 then
+				local inserted = dump_target.insert{name = actual_item_name, count = spider_has}
 				
-				if spider_has > 0 then
-					-- Try to insert items using the entity's insert method (like requester.insert)
-					-- This is the same pattern used for dropping off at requesters
-					local inserted = dump_target.insert{name = item_name, count = spider_has}
-					
-					-- logging.info("Dump", "  Attempted to insert " .. spider_has .. " " .. item_name .. ", got " .. inserted)
-					
-					if inserted > 0 then
-						-- Remove items from spider
-						local removed = spider.remove_item{name = item_name, count = inserted}
-						if removed > 0 then
-							dumped_any = true
-							-- logging.info("Dump", "Spider " .. unit_number .. " dumped " .. inserted .. " " .. item_name .. " to storage chest (removed " .. removed .. " from spider)")
-						else
-							-- logging.warn("Dump", "Spider " .. unit_number .. " inserted " .. inserted .. " " .. item_name .. " but failed to remove from spider (spider still has: " .. spider.get_item_count(item_name) .. ")")
-						end
-					else
-						-- logging.warn("Dump", "Spider " .. unit_number .. " failed to insert " .. item_name .. " into storage chest (spider has: " .. spider_has .. ", insert returned: " .. inserted .. ")")
+				if inserted > 0 then
+					local removed = spider.remove_item{name = actual_item_name, count = inserted}
+					if removed > 0 then
+						dumped_any = true
 					end
 				end
 			end
@@ -1173,56 +1188,56 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		end
 		
 		if dumped_any then
-			-- Check if there are more items to dump
+			-- Check if there are more dumpable items
 			local remaining_contents = trunk.get_contents()
 			if not remaining_contents or next(remaining_contents) == nil then
-				-- All items dumped, done
-				-- logging.info("Dump", "Spider " .. unit_number .. " finished dumping all items")
+				-- All items dumped
 				spider_data.dump_target = nil
 				journey.end_journey(unit_number, true)
-			else
-				-- Still have items, but chest might be full - try to find another storage chest
-				-- Or continue to current one if it can still accept items
-				local can_accept_more = false
-				local chest_inventory = dump_target.get_inventory(defines.inventory.chest)
-				if chest_inventory then
-					for item_name, count in pairs(remaining_contents) do
-						-- Validate item_name is a valid string
-						if not item_name or type(item_name) ~= "string" or item_name == "" then goto next_remaining_item end
-						
-						local item_count = 0
-						if type(count) == "number" then
-							item_count = count
-						elseif type(count) == "table" then
-							for quality, qty in pairs(count) do
-								if type(qty) == "number" then
-									item_count = item_count + qty
-								end
-							end
+				return
+			end
+			
+			-- Check if remaining items are dumpable
+			local has_more_dumpable = false
+			
+			for item_name, item_data in pairs(remaining_contents) do
+				local actual_item_name = item_name
+				local item_count = 0
+				
+				if type(item_data) == "table" and item_data.name then
+					actual_item_name = item_data.name
+					item_count = item_data.count or 0
+				elseif type(item_data) == "number" then
+					item_count = item_data
+				elseif type(item_data) == "table" then
+					for quality, qty in pairs(item_data) do
+						if type(qty) == "number" then
+							item_count = item_count + qty
 						end
-						
-						if item_count > 0 then
-							local success, can_insert_result = pcall(function()
-								return chest_inventory.can_insert({name = item_name, count = 1})
-							end)
-							if success and type(can_insert_result) == "number" and can_insert_result > 0 then
-								can_accept_more = true
-								break
-							end
-						end
-						::next_remaining_item::
 					end
 				end
 				
-				if not can_accept_more then
-					-- Current chest is full, find another
-					spider_data.dump_target = nil
-					journey.attempt_dump_items(unit_number)
+				if item_count > 0 and actual_item_name and actual_item_name ~= "" then
+					local requested = logistic_requests[actual_item_name] or 0
+					local total = spider.get_item_count(actual_item_name)
+					if requested == 0 or total > requested then
+						has_more_dumpable = true
+						break
+					end
 				end
 			end
+			
+			if has_more_dumpable then
+				-- Find another chest
+				spider_data.dump_target = nil
+				journey.attempt_dump_items(unit_number)
+			else
+				-- Done dumping
+				spider_data.dump_target = nil
+				journey.end_journey(unit_number, true)
+			end
 		else
-			-- Couldn't dump any items - chest might be full or items incompatible
-			-- Try to find another storage chest
+			-- Couldn't dump anything
 			spider_data.dump_target = nil
 			journey.attempt_dump_items(unit_number)
 		end

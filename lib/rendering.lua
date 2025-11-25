@@ -160,8 +160,7 @@ function rendering.draw_connection_lines(entity)
 	return lines
 end
 
--- Draw flashing warning icon above spider when it can't dump items
--- This should be called every tick to create a flashing effect
+-- Draw flashing warning icon when spider can't dump items
 function rendering.draw_dump_failed_icon(spider, spider_data)
 	if not spider or not spider.valid then return end
 	if not spider_data then return end

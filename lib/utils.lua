@@ -40,7 +40,39 @@ function utils.stack_size(item)
 end
 
 function utils.inventory_size(entity)
-	return entity.get_inventory(defines.inventory.chest).get_bar() - 1
+	local inventory = entity.get_inventory(defines.inventory.chest)
+	if not inventory then return 0 end
+	return #inventory
+end
+
+-- Get spidertron's logistic requests
+function utils.get_spider_logistic_requests(spider)
+	if not spider.valid then return {} end
+	
+	-- Get all logistic points
+	local logistic_points = spider.get_logistic_point()
+	if not logistic_points then return {} end
+	
+	local requests = {}
+	for point_index, logistic_point in pairs(logistic_points) do
+		local filters = logistic_point.filters
+		if filters then
+			for _, filter in pairs(filters) do
+				if filter then
+					if filter.value and filter.value.name then
+						local item_name = filter.value.name
+						local min_count = filter.min or 0
+						requests[item_name] = (requests[item_name] or 0) + min_count
+					elseif filter.name then
+						local min_count = filter.min or filter.count or 0
+						requests[filter.name] = (requests[filter.name] or 0) + min_count
+					end
+				end
+			end
+		end
+	end
+	
+	return requests
 end
 
 return utils

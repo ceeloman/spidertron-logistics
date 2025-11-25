@@ -1,4 +1,25 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.1.0
+  Features:
+    - Added automatic item dumping: spiders now automatically dump excess items (items not needed for their logistic requests) into storage chests
+    - Added stuck detection: spiders that haven't moved for 10+ seconds will automatically attempt to repath
+    - Enhanced pathfinding with waypoint simplification: adaptive spacing based on terrain difficulty and path curvature for more efficient routing
+    - Improved pathfinding with waypoint smoothing: corner cutting for smoother, more natural movement paths
+    - Enhanced nest avoidance: improved detour calculation that chooses the shorter route around enemy nests
+  Pathfinding & Terrain:
+    - Improved waypoint filtering: better detection and filtering of water/cliff waypoints for non-capable spiders
+    - Enhanced pathfinding error handling: visual error messages when pathfinding fails
+    - Improved pathfinding retry logic: better handling of "try_again_later" responses from pathfinding API
+  Logistics & Assignment:
+    - Added periodic beacon validation: automatic checks every 10 seconds to detect and reassign destroyed beacons
+    - Improved item dumping logic: spiders check for dumpable items after failed deliveries and automatically route to storage chests
+  Bugfixes:
+    - Fixed issue where spiders could get stuck with items they don't need after failed deliveries
+    - Improved handling of spiders with excess inventory items
+    - Fixed pathfinding issues when chunks are not yet generated
+  Other:
+    - Added visual error feedback for pathfinding failures
+---------------------------------------------------------------------------------------------------
 Version: 3.0.0
   Features:
     - Changed requester and provider chest recipes to use basic materials (steel-plate, electronic-circuit, advanced-circuit) instead of requester-chest/storage-chest and spidertron-remote
