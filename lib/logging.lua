@@ -14,7 +14,7 @@ logging.levels = {
 }
 
 -- Current log level (only log messages at or above this level)
-logging.current_level = logging.levels.INFO
+logging.current_level = logging.levels.DEBUG
 
 function logging.log(level, category, message)
 	if not logging.enabled then return end

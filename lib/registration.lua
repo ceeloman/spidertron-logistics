@@ -2,10 +2,12 @@
 
 local constants = require('lib.constants')
 local beacon_assignment = require('lib.beacon_assignment')
+local logging = require('lib.logging')
 
 local registration = {}
 
 function registration.register_provider(provider)
+	logging.info("Registration", "Registering provider chest " .. provider.unit_number .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 	storage.providers[provider.unit_number] = {
 		entity = provider,
 		allocated_items = {},
@@ -16,6 +18,12 @@ function registration.register_provider(provider)
 	script.register_on_object_destroyed(provider)
 	-- Assign to nearest beacon
 	beacon_assignment.assign_chest_to_nearest_beacon(provider, nil, "register_provider")
+	local provider_data = storage.providers[provider.unit_number]
+	if provider_data and provider_data.beacon_owner then
+		logging.info("Registration", "Provider chest " .. provider.unit_number .. " assigned to beacon " .. provider_data.beacon_owner)
+	else
+		logging.warn("Registration", "Provider chest " .. provider.unit_number .. " NOT assigned to any beacon")
+	end
 end
 
 function registration.register_requester(requester, tags)

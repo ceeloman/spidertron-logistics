@@ -744,31 +744,31 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 	for _, spids in pairs(spiders_list) do total_spiders = total_spiders + #spids end
 	for _, provs in pairs(providers_list) do total_providers = total_providers + #provs end
 	
-	-- logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
+	logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
 	
 	for network_key, requesters in pairs(requests) do
-		-- logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
+		logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
 		
 		local providers_for_network = providers_list[network_key]
 		if not providers_for_network then 
-			-- logging.debug("Logistics", "Network " .. network_key .. " has no providers")
+			logging.debug("Logistics", "Network " .. network_key .. " has no providers")
 			goto next_network 
 		end
-		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
+		logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
 		
 		local spiders_on_network = spiders_list[network_key]
 		if not spiders_on_network or #spiders_on_network == 0 then 
-			-- logging.debug("Logistics", "Network " .. network_key .. " has no available spiders")
-			goto next_network 
+			logging.debug("Logistics", "Network " .. network_key .. " has no available spiders")
+			goto next_network
 		end
-		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
+		logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
 		
 		for _, item_request in ipairs(requesters) do
 			local item = item_request.requested_item
 			local requester_data = item_request.requester_data
 			if not item then goto next_requester end
 			
-			-- logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester_data.entity.position.x) .. "," .. math.floor(requester_data.entity.position.y) .. ")")
+			logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester_data.entity.position.x) .. "," .. math.floor(requester_data.entity.position.y) .. ")")
 			
 			local max = 0
 			local best_provider
@@ -819,13 +819,13 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 					incoming_items = requester_data.incoming_items
 				}
 				local provider = best_provider.entity
-				-- logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
-				-- logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
+				logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
+				logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
 				local assigned = logistics.assign_spider(spiders_on_network, temp_requester, best_provider, max)
 				if assigned then
-					-- logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
+					logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
 				else
-					-- logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
+					logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
 				end
 				if not assigned then
 					goto next_requester
@@ -836,9 +836,9 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 				end
 			else
 				if best_provider == nil then
-					-- logging.debug("Logistics", "No provider found for " .. item)
+					logging.debug("Logistics", "No provider found for " .. item)
 				elseif max <= 0 then
-					-- logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
+					logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
 				end
 			end
 			
@@ -1291,7 +1291,7 @@ local function handle_entity_removal(event)
 		-- Reassign all chests from this beacon to other beacons
 		local beacon_data = storage.beacons[unit_number]
 		if beacon_data and beacon_data.assigned_chests then
-			logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
+			-- logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
 			-- Make a copy of the list since we'll be modifying it
 			local chests_to_reassign = {}
 			for _, chest_unit_number in ipairs(beacon_data.assigned_chests) do
@@ -1301,17 +1301,17 @@ local function handle_entity_removal(event)
 			-- CRITICAL: Remove beacon from storage BEFORE reassignment
 			-- This ensures find_nearest_beacon won't find it in storage validation
 			storage.beacons[unit_number] = nil
-			logging.info("Beacon", "Beacon " .. unit_number .. " removed from storage before reassignment")
+			-- logging.info("Beacon", "Beacon " .. unit_number .. " removed from storage before reassignment")
 			
 			-- First, unassign all chests from this beacon
-			logging.info("Beacon", "Unassigning " .. #chests_to_reassign .. " chests from destroyed beacon " .. unit_number)
+			-- logging.info("Beacon", "Unassigning " .. #chests_to_reassign .. " chests from destroyed beacon " .. unit_number)
 			for _, chest_unit_number in ipairs(chests_to_reassign) do
 				beacon_assignment.unassign_chest_from_beacon(chest_unit_number)
 			end
 			
 			-- Then, reassign each chest to the nearest available beacon (excluding the destroyed one)
 			-- Use assign_chest_to_nearest_beacon which properly handles both providers and requesters
-			logging.info("Beacon", "Reassigning " .. #chests_to_reassign .. " chests to nearest beacons")
+			-- logging.info("Beacon", "Reassigning " .. #chests_to_reassign .. " chests to nearest beacons")
 			for _, chest_unit_number in ipairs(chests_to_reassign) do
 				local chest = nil
 				local chest_type = "unknown"
@@ -1319,46 +1319,46 @@ local function handle_entity_removal(event)
 				if storage.providers[chest_unit_number] then
 					chest = storage.providers[chest_unit_number].entity
 					chest_type = "provider"
-					logging.info("Beacon", "Reassigning provider chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
+					-- logging.info("Beacon", "Reassigning provider chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
 				elseif storage.requesters[chest_unit_number] then
 					chest = storage.requesters[chest_unit_number].entity
 					chest_type = "requester"
-					logging.info("Beacon", "Reassigning requester chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
+					-- logging.info("Beacon", "Reassigning requester chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
 				else
-					logging.warn("Beacon", "Chest " .. chest_unit_number .. " not found in providers or requesters storage")
+					-- logging.warn("Beacon", "Chest " .. chest_unit_number .. " not found in providers or requesters storage")
 				end
 				
 				if chest and chest.valid then
 					-- Use assign_chest_to_nearest_beacon which properly handles both providers and requesters
 					-- Pass the destroyed beacon's unit_number to exclude it from the search
-					logging.info("Beacon", "Calling assign_chest_to_nearest_beacon for " .. chest_type .. " chest " .. chest_unit_number .. " (excluding beacon " .. unit_number .. ")")
+					-- logging.info("Beacon", "Calling assign_chest_to_nearest_beacon for " .. chest_type .. " chest " .. chest_unit_number .. " (excluding beacon " .. unit_number .. ")")
 					beacon_assignment.assign_chest_to_nearest_beacon(chest, unit_number, "beacon_removal")
 					
 					-- Verify assignment succeeded
 					if chest_type == "provider" and storage.providers[chest_unit_number] then
 						local new_beacon = storage.providers[chest_unit_number].beacon_owner
 						if new_beacon then
-							logging.info("Beacon", "Provider chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
+							-- logging.info("Beacon", "Provider chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
 						else
-							logging.warn("Beacon", "Provider chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
+							-- logging.warn("Beacon", "Provider chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
 						end
 					elseif chest_type == "requester" and storage.requesters[chest_unit_number] then
 						local new_beacon = storage.requesters[chest_unit_number].beacon_owner
 						if new_beacon then
-							logging.info("Beacon", "Requester chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
+							-- logging.info("Beacon", "Requester chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
 						else
-							logging.warn("Beacon", "Requester chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
+							-- logging.warn("Beacon", "Requester chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
 						end
 					end
 				else
-					logging.warn("Beacon", "Cannot reassign " .. chest_type .. " chest " .. chest_unit_number .. " - entity invalid or missing")
+					-- logging.warn("Beacon", "Cannot reassign " .. chest_type .. " chest " .. chest_unit_number .. " - entity invalid or missing")
 				end
 			end
 		else
 			-- No chests to reassign, just clean up
 			storage.beacons[unit_number] = nil
 		end
-		logging.info("Beacon", "Beacon " .. unit_number .. " cleanup complete")
+		-- logging.info("Beacon", "Beacon " .. unit_number .. " cleanup complete")
 	end
 end
 

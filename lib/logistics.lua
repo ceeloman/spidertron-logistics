@@ -44,7 +44,7 @@ function logistics.spiders()
 		
 		-- Only active spiders participate in logistics
 		if spider_data.active then
-			local network_key = network.beacon_unit_number
+			local network_key = network.network_key
 			if not valid[network_key] then
 				valid[network_key] = {}
 			end
@@ -58,7 +58,7 @@ function logistics.spiders()
 		available_count = available_count + #spids
 	end
 	
-	-- logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
+	logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
 	
 	return valid
 end
@@ -120,8 +120,8 @@ function logistics.requesters()
 				random_sort_order = random()
 			}
 			
-			-- Use beacon_unit_number as network key
-			local network_key = network.beacon_unit_number
+			-- Use surface-based network key
+			local network_key = network.network_key
 			if not result[network_key] then
 				result[network_key] = {item_request}
 			else
@@ -147,17 +147,29 @@ function logistics.providers()
 	-- First, add custom provider chests (existing logic)
 	for _, provider_data in pairs(storage.providers) do
 		local provider = provider_data.entity
-		if not provider.valid then goto continue end
+		if not provider.valid then 
+			logging.debug("Providers", "Provider chest invalid, skipping")
+			goto continue 
+		end
 			
-		if provider.to_be_deconstructed() then goto continue end
+		if provider.to_be_deconstructed() then 
+			logging.debug("Providers", "Provider chest marked for deconstruction, skipping")
+			goto continue 
+		end
 		
 		local network = beacon_assignment.spidertron_network(provider)
 		if not network then
+			logging.warn("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") has no network/beacon assigned")
 			rendering.draw_missing_roboport_icon(provider)
 			goto continue
 		end
 		
 		local inventory = provider.get_inventory(defines.inventory.chest)
+		if not inventory then
+			logging.warn("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") has no inventory")
+			goto continue
+		end
+		
 		local contents = inventory.get_contents()
 		local contains = {}
 		
@@ -180,11 +192,21 @@ function logistics.providers()
 			end
 		end
 		
-		if next(contains) == nil then goto continue end
+		if next(contains) == nil then 
+			logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is empty, skipping")
+			goto continue 
+		end
+		
+		-- Build item list string for logging
+		local item_list = {}
+		for item_name, count in pairs(contains) do
+			table.insert(item_list, item_name .. " x" .. count)
+		end
+		logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") has items: " .. table.concat(item_list, ", "))
 		provider_data.contains = contains
 		
-		-- Use beacon_unit_number as network key
-		local network_key = network.beacon_unit_number
+		-- Use surface-based network key
+		local network_key = network.network_key
 		if not result[network_key] then
 			result[network_key] = {provider_data}
 		else
@@ -257,12 +279,15 @@ function logistics.providers()
 					contains = contains
 				}
 				
-				-- Add to result by beacon network
-				local network_key = nearest_beacon.unit_number
-				if not result[network_key] then
-					result[network_key] = {robot_provider_data}
-				else
-					result[network_key][#result[network_key] + 1] = robot_provider_data
+				-- Add to result by surface network
+				local network = beacon_assignment.spidertron_network(chest)
+				if network then
+					local network_key = network.network_key
+					if not result[network_key] then
+						result[network_key] = {robot_provider_data}
+					else
+						result[network_key][#result[network_key] + 1] = robot_provider_data
+					end
 				end
 				
 				::next_chest::
@@ -276,7 +301,7 @@ end
 function logistics.assign_spider(spiders, requester_data, provider_data, can_provide)
 	local provider = provider_data.entity
 	if not provider.valid then 
-		-- logging.warn("Assignment", "Provider entity is invalid")
+		logging.warn("Assignment", "Provider entity is invalid")
 		return false 
 	end
 	local item = requester_data.requested_item
@@ -330,16 +355,16 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	}
 	
 	if #provider_near_nests > 0 then
-		-- logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
 	if #requester_near_nests > 0 then
-		-- logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
-	-- logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
+	logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
 	
 	for i, canidate in ipairs(spiders) do
 		-- Check if spider can insert item into trunk inventory
@@ -362,7 +387,7 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 			
 			-- Skip spiders that can't traverse water if destination is on water
 			if (provider_is_water or requester_is_water) and not can_water then
-				-- logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
+				logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
 				goto next_spider
 			end
 			
@@ -373,19 +398,19 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 				spider = canidate
 				best_distance = dist
 				spider_index = i
-				-- logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
+				logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
 			end
 		else
-			-- logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
+			logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
 		end
 		::next_spider::
 	end
 	if not spider then 
-		-- logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
+		logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
 		return false 
 	end
 	
-	-- logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
+	logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
 	-- logging.info("Assignment", "Spider current position: (" .. math.floor(spider.position.x) .. "," .. math.floor(spider.position.y) .. ")")
 	
 	local spider_data = storage.spiders[spider.unit_number]
@@ -416,15 +441,15 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	spider_data.payload_item = item
 	spider_data.payload_item_count = can_provide
 	
-	-- logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
-	-- logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+	logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
+	logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 	
 	-- Set destination using pathing
 	local pathing_success = pathing.set_smart_destination(spider, provider.position, provider)
 	
 	if not pathing_success then
 		-- Pathfinding request failed - cancel the assignment
-		-- logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
+		logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
 		-- Revert spider status
 		spider_data.status = constants.idle
 		spider_data.requester_target = nil

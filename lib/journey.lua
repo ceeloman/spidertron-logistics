@@ -50,9 +50,29 @@ function journey.end_journey(unit_number, find_beacon)
 	end
 	
 	if find_beacon and spider.valid and spider.get_driver() == nil then
+		-- Try to find beacon with highest pickup count (most activity) within reasonable distance
+		-- This helps distribute spiders to the most active beacons
+		local active_beacon = beacon_assignment.find_beacon_with_highest_pickup_count(
+			spider.surface, 
+			beacon_starting_point.position, 
+			spider.force,
+			1000  -- Search within 1000 tiles
+		)
+		
+		if active_beacon and active_beacon.valid then
+			pathing.set_smart_destination(spider, active_beacon.position, active_beacon)
+		else
+			-- Fallback to nearest beacon if no active beacon found
 		local current_network = beacon_assignment.spidertron_network(beacon_starting_point)
 		if current_network and current_network.beacon and current_network.beacon.valid then
 			pathing.set_smart_destination(spider, current_network.beacon.position, current_network.beacon)
+		else
+			-- Fallback: find any beacon on the surface
+			local nearest_beacon = beacon_assignment.find_nearest_beacon(spider.surface, beacon_starting_point.position, spider.force, nil, "end_journey_fallback")
+			if nearest_beacon then
+				pathing.set_smart_destination(spider, nearest_beacon.position, nearest_beacon)
+			end
+		end
 		end
 	end
 	
@@ -130,12 +150,13 @@ function journey.deposit_already_had(spider_data)
 	local requesters = {}
 	local requester_items = {}
 	local i = 1
-	local network_beacon = network and network.beacon_unit_number
 	
+	-- Network is now surface-wide, so filter by surface instead of beacon
 	for _, requester_data in pairs(storage.requesters) do
 		local requester = requester_data.entity
 		if not requester.valid then goto continue end
-		if network_beacon and requester_data.beacon_owner ~= network_beacon then goto continue end
+		-- Only consider requesters on the same surface as the spider
+		if requester.surface ~= spider.surface or requester.force ~= spider.force then goto continue end
 		
 		-- Migrate old format if needed
 		if not requester_data.requested_items then
@@ -218,9 +239,8 @@ function journey.attempt_dump_items(unit_number)
 	
 	local surface = spider.surface
 	local spider_pos = spider.position
-	local network_beacon = network.beacon_unit_number
 	
-	-- Find nearest storage chest in the network
+	-- Find nearest storage chest on the same surface
 	local nearest_storage = nil
 	local nearest_distance = nil
 	
