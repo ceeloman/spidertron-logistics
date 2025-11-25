@@ -428,8 +428,43 @@ local function simplify_waypoints(surface, waypoints, start_pos, can_water, can_
 	return simplified
 end
 
+-- Check if a line segment crosses water (for spiders that can't traverse water)
+local function line_segment_crosses_water(surface, start_pos, end_pos, can_water)
+	if can_water then
+		-- Spider can traverse water, so crossing is OK
+		return false
+	end
+	
+	-- Check multiple points along the line segment
+	local distance = math.sqrt((end_pos.x - start_pos.x)^2 + (end_pos.y - start_pos.y)^2)
+	local steps = math.max(3, math.ceil(distance / 2))  -- Check every ~2 tiles, minimum 3 steps
+	
+	for i = 0, steps do
+		local t = i / steps
+		local check_x = start_pos.x + (end_pos.x - start_pos.x) * t
+		local check_y = start_pos.y + (end_pos.y - start_pos.y) * t
+		
+		-- Check if this point is on water
+		if terrain.is_position_on_water(surface, {x = check_x, y = check_y}, 1.5) then
+			return true
+		end
+		
+		-- Also check the exact tile
+		local check_tile = surface.get_tile(math.floor(check_x), math.floor(check_y))
+		if check_tile and check_tile.valid then
+			local tile_name = check_tile.name:lower()
+			if tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal") then
+				return true
+			end
+		end
+	end
+	
+	return false
+end
+
 -- Smooth waypoints by cutting corners (skips locked waypoints)
-local function smooth_waypoints(waypoints, start_pos)
+-- Now checks for water crossings to prevent smoothing over water
+local function smooth_waypoints(waypoints, start_pos, surface, can_water)
 	if not waypoints or #waypoints < 2 then
 		return waypoints
 	end
@@ -505,6 +540,21 @@ local function smooth_waypoints(waypoints, start_pos)
 			else
 				-- Very sharp turn (> 150°) - keep original waypoint
 				smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
+			end
+			
+			-- Check if smoothing would cross water - if so, keep original waypoint
+			if surface and not can_water then
+				-- Check if the path from previous to smoothed position crosses water
+				if line_segment_crosses_water(surface, prev_pos, smoothed_pos, can_water) then
+					-- Smoothed path would cross water, keep original waypoint
+					smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
+				else
+					-- Also check path from smoothed position to next
+					if line_segment_crosses_water(surface, smoothed_pos, next_pos, can_water) then
+						-- Smoothed path would cross water, keep original waypoint
+						smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
+					end
+				end
 			end
 			
 			table.insert(smoothed, smoothed_pos)
@@ -848,7 +898,7 @@ function pathing.handle_path_result(path_result)
 	end
 	
 	-- Smooth waypoints by cutting corners for smoother paths
-	local smoothed_waypoints = smooth_waypoints(simplified_waypoints, spider.position)
+	local smoothed_waypoints = smooth_waypoints(simplified_waypoints, spider.position, surface, can_water)
 	-- logging.info("Pathing", "Smoothed waypoints: " .. #simplified_waypoints .. " -> " .. #smoothed_waypoints)
 	
 	-- ITERATIVE APPROACH: Check for nest violations and insert detours, then re-smooth
@@ -858,7 +908,7 @@ function pathing.handle_path_result(path_result)
 	-- If detours were inserted, re-smooth the path (respecting locked detour points)
 	if #waypoints_with_detours ~= #smoothed_waypoints then
 		-- logging.info("Pathing", "Detours inserted (" .. #smoothed_waypoints .. " -> " .. #waypoints_with_detours .. "), re-smoothing path...")
-		waypoints_with_detours = smooth_waypoints(waypoints_with_detours, spider.position)
+		waypoints_with_detours = smooth_waypoints(waypoints_with_detours, spider.position, surface, can_water)
 		-- logging.info("Pathing", "Re-smoothed waypoints: " .. #waypoints_with_detours)
 	else
 		-- logging.info("Pathing", "No detours needed, using smoothed waypoints")
