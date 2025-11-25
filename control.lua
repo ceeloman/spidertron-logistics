@@ -13,6 +13,7 @@ local rendering = require('lib.rendering')
 local debug_commands = require('lib.commands')
 local pathing = require('lib.pathing')
 local logging = require('lib.logging')
+local route_planning = require('lib.route_planning')
 
 -- Local references for performance
 local min = math.min
@@ -744,105 +745,283 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 	for _, spids in pairs(spiders_list) do total_spiders = total_spiders + #spids end
 	for _, provs in pairs(providers_list) do total_providers = total_providers + #provs end
 	
-	logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
+	-- logging.debug("Logistics", "Update cycle: " .. total_requests .. " requests, " .. total_spiders .. " spiders, " .. total_providers .. " providers")
 	
 	for network_key, requesters in pairs(requests) do
-		logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
+		-- logging.debug("Logistics", "Processing network " .. network_key .. " with " .. #requesters .. " requests")
 		
 		local providers_for_network = providers_list[network_key]
 		if not providers_for_network then 
 			logging.debug("Logistics", "Network " .. network_key .. " has no providers")
 			goto next_network 
 		end
-		logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
+		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #providers_for_network .. " providers")
 		
 		local spiders_on_network = spiders_list[network_key]
 		if not spiders_on_network or #spiders_on_network == 0 then 
 			logging.debug("Logistics", "Network " .. network_key .. " has no available spiders")
 			goto next_network
 		end
-		logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
+		-- logging.debug("Logistics", "Network " .. network_key .. " has " .. #spiders_on_network .. " available spiders")
 		
-		for _, item_request in ipairs(requesters) do
-			local item = item_request.requested_item
-			local requester_data = item_request.requester_data
-			if not item then goto next_requester end
-			
-			logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester_data.entity.position.x) .. "," .. math.floor(requester_data.entity.position.y) .. ")")
-			
-			local max = 0
-			local best_provider
-			for _, provider_data in ipairs(providers_for_network) do
-				local provider = provider_data.entity
-				if not provider or not provider.valid then goto next_provider end
-				
-				local item_count = 0
-				local allocated = 0
-				
-				if provider_data.is_robot_chest then
-					-- For robot chests, use the contains data that was already calculated
-					-- or recalculate if not available (shouldn't happen, but safety check)
-					if provider_data.contains and provider_data.contains[item] then
-						item_count = provider_data.contains[item]
-					else
-						-- Fallback: recalculate from inventory
-						item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-					end
-					allocated = 0  -- Robot chests don't use allocation tracking
-				else
-					-- Custom provider chest logic (existing)
-					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-					if not provider_data.allocated_items then
-						provider_data.allocated_items = {}
-					end
-					allocated = provider_data.allocated_items[item] or 0
-				end
-				
-				-- Only consider providers that actually have the item
-				if item_count <= 0 then goto next_provider end
-				
-				local can_provide = item_count - allocated
-				if can_provide > 0 and can_provide > max then
-					max = can_provide
-					best_provider = provider_data
-				end
-				
-				::next_provider::
-			end
-			
-			if best_provider ~= nil and max > 0 then
-				-- Create a temporary requester_data-like object for assign_spider
-				local temp_requester = {
-					entity = requester_data.entity,
-					requested_item = item,
-					real_amount = item_request.real_amount,
-					incoming_items = requester_data.incoming_items
-				}
-				local provider = best_provider.entity
-				logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
-				logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
-				local assigned = logistics.assign_spider(spiders_on_network, temp_requester, best_provider, max)
+		-- Check for mixed routes (multi-pickup + multi-delivery) BEFORE grouping by requester
+		-- This allows us to see ALL requesters needing the same item across all requester groups
+		local best_spider_pos = nil
+		if #spiders_on_network > 0 then
+			best_spider_pos = spiders_on_network[1].position
+		end
+		
+		if best_spider_pos then
+			-- Feature 5: Check for multi-item, multi-requester route (different items, multiple providers, multiple requesters)
+			-- This should be checked first as it's the most general case
+			local multi_item_multi_req_route = route_planning.find_multi_item_multi_requester_route(requesters, providers_for_network, best_spider_pos)
+			if multi_item_multi_req_route then
+				local assigned = logistics.assign_spider_with_route(spiders_on_network, multi_item_multi_req_route, "multi_item_multi_requester")
 				if assigned then
-					logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
-				else
-					logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
-				end
-				if not assigned then
-					goto next_requester
-				end
-				if #spiders_on_network == 0 then
-					-- logging.debug("Logistics", "No more spiders available on network " .. network_key)
+					-- logging.info("Assignment", "✓ Multi-item, multi-requester route assignment SUCCESSFUL")
+					-- Mark all affected requests as assigned
+					for _, item_req in ipairs(requesters) do
+						if item_req.real_amount > 0 then
+							item_req.real_amount = 0
+						end
+					end
+					if #spiders_on_network == 0 then
+						goto next_network
+					end
 					goto next_network
 				end
-			else
-				if best_provider == nil then
-					logging.debug("Logistics", "No provider found for " .. item)
-				elseif max <= 0 then
-					logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
+			end
+			
+			-- Group ALL requests by item type (across all requesters)
+			local all_requests_by_item = {}
+			for _, item_request in ipairs(requesters) do
+				local item = item_request.requested_item
+				if item and item_request.real_amount > 0 then
+					if not all_requests_by_item[item] then
+						all_requests_by_item[item] = {}
+					end
+					table.insert(all_requests_by_item[item], item_request)
 				end
 			end
 			
-			::next_requester::
+			-- Check for mixed routes for each item
+			for item, item_requests_list in pairs(all_requests_by_item) do
+				-- Need at least 2 requesters for this item to consider mixed route
+				if #item_requests_list >= 2 then
+					-- Calculate total needed
+					local total_needed = 0
+					for _, item_req in ipairs(item_requests_list) do
+						total_needed = total_needed + item_req.real_amount
+					end
+					
+					local mixed_route = route_planning.find_mixed_route(item, total_needed, providers_for_network, requesters, best_spider_pos)
+					if mixed_route then
+						local assigned = logistics.assign_spider_with_route(spiders_on_network, mixed_route, "mixed")
+						if assigned then
+							-- logging.info("Assignment", "✓ Mixed route assignment SUCCESSFUL")
+							-- Mark all affected requests as assigned
+							for _, item_req in ipairs(item_requests_list) do
+								item_req.real_amount = 0
+							end
+							if #spiders_on_network == 0 then
+								goto next_network
+							end
+							-- Continue to next network (all requests for this item are assigned)
+							goto next_network
+						end
+					end
+				end
+			end
+		end
+		
+		-- Group requests by requester for multi-item route detection
+		local requests_by_requester = {}
+		for _, item_request in ipairs(requesters) do
+			local requester_data = item_request.requester_data
+			local requester_unit_number = requester_data.entity.unit_number
+			if not requests_by_requester[requester_unit_number] then
+				requests_by_requester[requester_unit_number] = {}
+			end
+			table.insert(requests_by_requester[requester_unit_number], item_request)
+		end
+		
+		-- Process each requester's requests
+		for requester_unit_number, requester_item_requests in pairs(requests_by_requester) do
+			local first_request = requester_item_requests[1]
+			local requester_data = first_request.requester_data
+			local requester = requester_data.entity
+			
+			-- Feature 3: Check for multi-item route (one requester, multiple items)
+			if #requester_item_requests >= 2 then
+				local requested_items = {}
+				for _, item_req in ipairs(requester_item_requests) do
+					if item_req.requested_item and item_req.real_amount > 0 then
+						requested_items[item_req.requested_item] = item_req.real_amount
+					end
+				end
+				
+				if next(requested_items) then
+					-- Find best spider position for route comparison
+					local best_spider_pos = nil
+					local best_spider = nil
+					if #spiders_on_network > 0 then
+						best_spider = spiders_on_network[1]
+						best_spider_pos = best_spider.position
+					else
+						goto skip_multi_item
+					end
+					
+					-- Try to find multi-item route
+					local multi_item_route = route_planning.find_multi_item_route(requester, requested_items, providers_for_network, best_spider_pos)
+					if multi_item_route then
+						local assigned = logistics.assign_spider_with_route(spiders_on_network, multi_item_route, "multi_item")
+						if assigned then
+							-- logging.info("Assignment", "✓ Multi-item route assignment SUCCESSFUL")
+							-- Mark all items in this route as assigned
+							for _, item_req in ipairs(requester_item_requests) do
+								item_req.real_amount = 0  -- Mark as assigned
+							end
+							if #spiders_on_network == 0 then
+								goto next_network
+							end
+							goto next_requester_group
+						end
+					end
+				end
+			end
+			
+			::skip_multi_item::
+			
+			-- Process each item request for this requester
+			for _, item_request in ipairs(requester_item_requests) do
+				local item = item_request.requested_item
+				if not item or item_request.real_amount <= 0 then goto next_item_request end
+				
+				-- logging.debug("Logistics", "Processing request: " .. item .. " x" .. item_request.real_amount .. " for requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ")")
+				
+				-- Feature 1: Check for multi-pickup route (multiple providers for same item)
+				if best_spider_pos then
+					local multi_pickup_route = route_planning.find_multi_pickup_route(requester, item, item_request.real_amount, providers_for_network, best_spider_pos)
+					if multi_pickup_route then
+						local assigned = logistics.assign_spider_with_route(spiders_on_network, multi_pickup_route, "multi_pickup")
+						if assigned then
+							-- logging.info("Assignment", "✓ Multi-pickup route assignment SUCCESSFUL")
+							item_request.real_amount = 0  -- Mark as assigned
+							if #spiders_on_network == 0 then
+								goto next_network
+							end
+							goto next_item_request
+						end
+					end
+				end
+				
+				-- Feature 2: Check for multi-delivery route (one provider, multiple requesters)
+				-- Find best provider first
+				local max = 0
+				local best_provider
+				for _, provider_data in ipairs(providers_for_network) do
+					local provider = provider_data.entity
+					if not provider or not provider.valid then goto next_provider end
+					
+					local item_count = 0
+					local allocated = 0
+					
+					if provider_data.is_robot_chest then
+						if provider_data.contains and provider_data.contains[item] then
+							item_count = provider_data.contains[item]
+						else
+							item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+						end
+						allocated = 0
+					else
+						item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+						if not provider_data.allocated_items then
+							provider_data.allocated_items = {}
+						end
+						allocated = provider_data.allocated_items[item] or 0
+					end
+					
+					if item_count <= 0 then goto next_provider end
+					
+					local can_provide = item_count - allocated
+					if can_provide > 0 and can_provide > max then
+						max = can_provide
+						best_provider = provider_data
+					end
+					
+					::next_provider::
+				end
+				
+				if best_provider and max > 0 then
+					-- Check for multi-delivery route
+					if best_spider_pos then
+						local multi_delivery_route = route_planning.find_multi_delivery_route(best_provider.entity, item, max, requesters, best_spider_pos)
+						if multi_delivery_route then
+							local assigned = logistics.assign_spider_with_route(spiders_on_network, multi_delivery_route, "multi_delivery")
+							if assigned then
+								-- logging.info("Assignment", "✓ Multi-delivery route assignment SUCCESSFUL")
+								-- Mark all affected requests as assigned
+								for _, req in ipairs(requesters) do
+									if req.requested_item == item and req.requester_data.entity.unit_number ~= requester_unit_number then
+										-- Check if this requester is in the route
+										for _, stop in ipairs(multi_delivery_route) do
+											if stop.type == "delivery" and stop.entity.unit_number == req.requester_data.entity.unit_number then
+												req.real_amount = math.max(0, req.real_amount - stop.amount)
+												break
+											end
+										end
+									end
+								end
+								item_request.real_amount = 0  -- Mark as assigned
+								if #spiders_on_network == 0 then
+									goto next_network
+								end
+								goto next_item_request
+							end
+						end
+					end
+					
+					-- Fallback to single assignment
+					-- Check if we should delay this assignment to batch more items
+					if logistics.should_delay_assignment(requester_data, best_provider, max, item_request.real_amount, item_request.percentage_filled) then
+						logging.debug("Logistics", "Delaying assignment for " .. item .. " (can_provide=" .. max .. 
+							", real_amount=" .. item_request.real_amount .. ") - waiting for more items")
+						goto next_item_request  -- Skip this assignment, try again next cycle
+					end
+					
+					-- Create a temporary requester_data-like object for assign_spider
+					local temp_requester = {
+						entity = requester_data.entity,
+						requested_item = item,
+						real_amount = item_request.real_amount,
+						incoming_items = requester_data.incoming_items
+					}
+					-- logging.info("Assignment", "Found provider with " .. max .. " " .. item .. " available")
+					-- logging.info("Assignment", "Attempting to assign spider for " .. item .. " x" .. max)
+					local assigned = logistics.assign_spider(spiders_on_network, temp_requester, best_provider, max)
+					if assigned then
+						-- logging.info("Assignment", "✓ Spider assignment SUCCESSFUL")
+					else
+						logging.warn("Assignment", "✗ Spider assignment FAILED (no available spiders or inventory full)")
+					end
+					if not assigned then
+						goto next_item_request
+					end
+					if #spiders_on_network == 0 then
+						goto next_network
+					end
+				else
+					if best_provider == nil then
+						logging.debug("Logistics", "No provider found for " .. item)
+					elseif max <= 0 then
+						logging.debug("Logistics", "Provider found but has 0 items available for " .. item)
+					end
+				end
+				
+				::next_item_request::
+			end
+			
+			::next_requester_group::
 		end
 		::next_network::
 	end
@@ -857,10 +1036,14 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	if spider_data == nil or not spider_data.status or spider_data.status == constants.idle then
 		return
 	elseif spider_data.status == constants.picking_up then
-		if not spider_data.requester_target or not spider_data.requester_target.valid then
-			-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: picking_up)")
-			journey.end_journey(unit_number, true)
-			return
+		-- For routes, requester_target may be nil (we're picking up first)
+		-- Only require requester_target for non-route pickups
+		if not spider_data.route then
+			if not spider_data.requester_target or not spider_data.requester_target.valid then
+				-- logging.warn("Journey", "Spider " .. unit_number .. " cancelling: requester_target invalid (status: picking_up, no route)")
+				journey.end_journey(unit_number, true)
+				return
+			end
 		end
 		goal = spider_data.provider_target
 	elseif spider_data.status == constants.dropping_off then
@@ -900,16 +1083,24 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	local item = spider_data.payload_item
 	local item_count = spider_data.payload_item_count
 	local requester = spider_data.requester_target
-	local requester_data = storage.requesters[requester.unit_number]
+	local requester_data = nil
+	if requester and requester.valid then
+		requester_data = storage.requesters[requester.unit_number]
+	end
 	
 	if spider_data.status == constants.picking_up then
 		local provider = spider_data.provider_target
+		
+		if not provider or not provider.valid then
+			logging.warn("Pickup", "Provider target is invalid!")
+			journey.end_journey(unit_number, true)
+			return
+		end
 		
 		-- Verify spider is actually close enough to the provider
 		local distance_to_provider = utils.distance(spider.position, provider.position)
 		if distance_to_provider > 6 then
 			-- Spider not close enough yet, wait for next command completion
-			-- logging.debug("Pickup", "Spider " .. unit_number .. " not close enough to provider (distance: " .. string.format("%.2f", distance_to_provider) .. "), waiting...")
 			return
 		end
 		
@@ -918,7 +1109,6 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			spider.autopilot_destination = nil
 		end
 		
-		-- logging.info("Pickup", "Spider arrived at provider for " .. item .. " x" .. item_count .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 		local provider_data = storage.providers[provider.unit_number]
 		local is_robot_chest = false
 		
@@ -941,22 +1131,95 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		end
 		
 		-- Get item count from provider chest inventory
-		local provider_inventory = provider.get_inventory(defines.inventory.chest)
-		local contains = provider_inventory and provider_inventory.get_item_count(item) or 0
-		if contains > item_count then contains = item_count end
-		local already_had = spider.get_item_count(item)
-		if already_had > item_count then already_had = item_count end
-		
-		if contains + already_had == 0 then
-			-- logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: no items available at provider (contains: " .. contains .. ", already_had: " .. already_had .. ")")
+		if not item then
+			logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: item is nil")
 			journey.end_journey(unit_number, true)
 			return
 		end
 		
-		local can_insert = min(contains - already_had, item_count)
-		local actually_inserted = can_insert <= 0 and 0 or spider.insert{name = item, count = can_insert}
-		if actually_inserted + already_had == 0 then
-			-- logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: failed to insert items (can_insert: " .. can_insert .. ", actually_inserted: " .. actually_inserted .. ", already_had: " .. already_had .. ")")
+		local provider_inventory = provider.get_inventory(defines.inventory.chest)
+		local contains = 0
+		if provider_inventory then
+			contains = provider_inventory.get_item_count(item) or 0
+		else
+			logging.warn("Pickup", "Provider has no inventory")
+			journey.end_journey(unit_number, true)
+			return
+		end
+		
+		-- For routes, get the stop's amount (what this provider should give)
+		-- For non-routes, use item_count
+		local stop_amount = item_count
+		if spider_data.route and spider_data.current_route_index then
+			local current_stop = spider_data.route[spider_data.current_route_index]
+			if current_stop and current_stop.amount then
+				stop_amount = current_stop.amount
+			end
+		end
+		
+		-- Get spider trunk inventory
+		local trunk = spider.get_inventory(defines.inventory.spider_trunk)
+		if not trunk then
+			logging.warn("Pickup", "Spider has no trunk inventory")
+			journey.end_journey(unit_number, true)
+			return
+		end
+		
+		-- Get how many items spider already has
+		local already_had = spider.get_item_count(item)
+		
+		-- Check how much we can actually insert (respects stack sizes and inventory limits)
+		-- trunk.can_insert() is boolean, so we need to calculate the actual limit
+		local max_can_insert = 0
+		if trunk.can_insert({name = item, count = 1}) then
+			-- Spider can insert at least 1, calculate how many
+			local stack_size = utils.stack_size(item)
+			
+			-- Calculate space in existing stacks of this item
+			local space_in_existing = 0
+			for i = 1, #trunk do
+				local stack = trunk[i]
+				if stack and stack.valid_for_read and stack.name == item then
+					space_in_existing = space_in_existing + (stack_size - stack.count)
+				end
+			end
+			
+			-- Calculate space in empty slots
+			local empty_slots = trunk.count_empty_stacks(false, false)
+			local space_in_empty = empty_slots * stack_size
+			
+			-- Total space available
+			max_can_insert = space_in_existing + space_in_empty
+		end
+		
+		-- Limit to what provider has and what this stop should provide
+		local can_insert = min(max_can_insert, contains, stop_amount)
+		
+		
+		if can_insert <= 0 then
+			-- If we already have some items and this is a route, continue with route
+			if already_had > 0 and spider_data.route and spider_data.current_route_index then
+				-- Update payload and continue
+				if not spider_data.route_payload then
+					spider_data.route_payload = {}
+				end
+				spider_data.route_payload[item] = already_had
+				spider_data.payload_item_count = already_had
+				-- Advance route
+				local advanced = journey.advance_route(unit_number)
+				if not advanced then
+					return
+				end
+				return
+			end
+			journey.end_journey(unit_number, true)
+			return
+		end
+		
+		local actually_inserted = spider.insert{name = item, count = can_insert}
+		
+		if actually_inserted == 0 and already_had == 0 then
+			logging.warn("Pickup", "Spider " .. unit_number .. " cancelling: failed to insert items (can_insert: " .. can_insert .. ", actually_inserted: " .. actually_inserted .. ", already_had: " .. already_had .. ")")
 			journey.end_journey(unit_number, true)
 			return
 		end
@@ -1011,25 +1274,56 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		-- Successfully picked up, reset retry counter
 		spider_data.pickup_retry_count = nil
 		
-		spider_data.payload_item_count = actually_inserted + already_had
-		-- Update incoming_items: subtract original expected amount, add back what was actually picked up
-		if not requester_data.incoming_items then
-			requester_data.incoming_items = {}
+		-- Update payload count - for routes, accumulate items from multiple pickups
+		if spider_data.route and spider_data.current_route_index then
+			-- In a route, accumulate items
+			local current_stop = spider_data.route[spider_data.current_route_index]
+			if current_stop then
+				-- Update the stop with actual amount picked up
+				current_stop.actual_amount = actually_inserted
+				-- Accumulate total payload
+				if not spider_data.route_payload then
+					spider_data.route_payload = {}
+				end
+				spider_data.route_payload[item] = (spider_data.route_payload[item] or 0) + actually_inserted
+				spider_data.payload_item_count = spider_data.route_payload[item] or 0
+			end
+		else
+			-- Single pickup, update normally
+			spider_data.payload_item_count = actually_inserted + already_had
 		end
-		requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count + actually_inserted + already_had
-		if requester_data.incoming_items[item] <= 0 then
-			requester_data.incoming_items[item] = nil
+		
+		-- Update incoming_items: subtract original expected amount, add back what was actually picked up
+		-- For routes, we'll update incoming_items when we deliver
+		if not spider_data.route then
+			if not requester_data.incoming_items then
+				requester_data.incoming_items = {}
+			end
+			requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count + actually_inserted + already_had
+			if requester_data.incoming_items[item] <= 0 then
+				requester_data.incoming_items[item] = nil
+			end
 		end
 		
 		-- Only proceed to next destination if we actually have items
 		if spider_data.payload_item_count > 0 then
-			-- logging.info("Pickup", "Pickup successful: " .. spider_data.payload_item_count .. " items, setting destination to requester")
-			-- Set status to dropping_off and set destination to requester
-			spider_data.status = constants.dropping_off
-			local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
-			if not pathing_success then
-				-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
-				journey.end_journey(unit_number, true)
+			-- Check if spider has a route - if so, advance to next stop
+			if spider_data.route and spider_data.current_route_index then
+				local advanced = journey.advance_route(unit_number)
+				if not advanced then
+					-- Route complete or failed, journey already ended
+					return
+				end
+			else
+				-- No route, proceed with single pickup/delivery
+				-- logging.info("Pickup", "Pickup successful: " .. spider_data.payload_item_count .. " items, setting destination to requester")
+				-- Set status to dropping_off and set destination to requester
+				spider_data.status = constants.dropping_off
+				local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
+				if not pathing_success then
+					-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
+					journey.end_journey(unit_number, true)
+				end
 			end
 		else
 			-- No items picked up, end journey
@@ -1066,51 +1360,110 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 			spider.autopilot_destination = nil
 		end
 		
-		local spider_item_count = spider.get_item_count(item)
-		local can_insert = min(spider_item_count, item_count)
+		-- Handle delivery - check if this is a route with multi-item delivery
+		local items_to_deliver = {}
+		if spider_data.route and spider_data.current_route_index then
+			local current_stop = spider_data.route[spider_data.current_route_index]
+			if current_stop and current_stop.type == "delivery" then
+				if current_stop.items then
+					-- Multi-item delivery - deliver all requested items
+					for req_item, req_amount in pairs(current_stop.items) do
+						local spider_has = spider.get_item_count(req_item)
+						if spider_has > 0 then
+							items_to_deliver[req_item] = math.min(spider_has, req_amount)
+						end
+					end
+				elseif current_stop.item then
+					-- Single item delivery
+					local spider_item_count = spider.get_item_count(current_stop.item)
+					if spider_item_count > 0 then
+						items_to_deliver[current_stop.item] = math.min(spider_item_count, current_stop.amount or spider_item_count)
+					end
+				end
+			end
+		else
+			-- Single delivery, use existing logic
+			local spider_item_count = spider.get_item_count(item)
+			local can_insert = min(spider_item_count, item_count)
+			if can_insert > 0 then
+				items_to_deliver[item] = can_insert
+			end
+		end
 		
-		-- Use insert and remove with exact counts
-		local actually_inserted = 0
-		if can_insert > 0 then
-			actually_inserted = requester.insert{name = item, count = can_insert}
-			-- logging.info("Dropoff", "  Inserted " .. actually_inserted .. " " .. item .. " into requester")
-			
-			if actually_inserted > 0 then
-				-- Remove exactly what was inserted
-				local removed = spider.remove_item{name = item, count = actually_inserted}
-				-- logging.info("Dropoff", "  Removed " .. removed .. " " .. item .. " from spider")
-				
-				if removed > 0 then
-					requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
-					rendering.draw_deposit_icon(requester)
-				else
-					-- logging.warn("Dropoff", "  Failed to remove items from spider after insertion")
+		-- Deliver all items
+		local total_delivered = 0
+		for deliver_item, deliver_amount in pairs(items_to_deliver) do
+			if deliver_amount > 0 and requester.can_insert(deliver_item) then
+				local actually_inserted = requester.insert{name = deliver_item, count = deliver_amount}
+				if actually_inserted > 0 then
+					local removed = spider.remove_item{name = deliver_item, count = actually_inserted}
+					if removed > 0 then
+						total_delivered = total_delivered + actually_inserted
+						requester_data.dropoff_count = (requester_data.dropoff_count or 0) + actually_inserted
+						
+						-- Update incoming_items
+						if not requester_data.incoming_items then
+							requester_data.incoming_items = {}
+						end
+						requester_data.incoming_items[deliver_item] = (requester_data.incoming_items[deliver_item] or 0) - actually_inserted
+						if requester_data.incoming_items[deliver_item] <= 0 then
+							requester_data.incoming_items[deliver_item] = nil
+						end
+						
+						-- Update route payload if in route
+						if spider_data.route and spider_data.route_payload then
+							spider_data.route_payload[deliver_item] = (spider_data.route_payload[deliver_item] or 0) - actually_inserted
+							if spider_data.route_payload[deliver_item] <= 0 then
+								spider_data.route_payload[deliver_item] = nil
+							end
+						end
+					end
 				end
 			end
 		end
 		
-		-- Verify spider no longer has the items (or has fewer) before ending journey
-		local remaining_spider_count = spider.get_item_count(item)
-		if remaining_spider_count >= spider_item_count and spider_item_count > 0 then
-			-- Dropoff failed - items are still in spider, retry
-			-- Initialize retry counter if not exists
+		if total_delivered > 0 then
+			rendering.draw_deposit_icon(requester)
+		end
+		
+		-- Check if delivery was successful (items were removed from spider)
+		local delivery_successful = false
+		if spider_data.route and spider_data.current_route_index then
+			-- For routes, check if we delivered what we intended
+			local current_stop = spider_data.route[spider_data.current_route_index]
+			if current_stop then
+				if current_stop.items then
+					-- Multi-item: check if we delivered at least some items
+					delivery_successful = total_delivered > 0
+				elseif current_stop.item then
+					-- Single item: check if we have less of this item now
+					local remaining = spider.get_item_count(current_stop.item)
+					local had_before = (spider_data.route_payload and spider_data.route_payload[current_stop.item]) or 0
+					delivery_successful = remaining < had_before or total_delivered > 0
+				end
+			end
+		else
+			-- Single delivery: check if items were removed
+			local spider_item_count = spider.get_item_count(item) + total_delivered  -- What we had before delivery
+			local remaining_spider_count = spider.get_item_count(item)
+			delivery_successful = remaining_spider_count < spider_item_count or total_delivered > 0
+		end
+		
+		if not delivery_successful and total_delivered == 0 then
+			-- Delivery failed - retry
 			if not spider_data.dropoff_retry_count then
 				spider_data.dropoff_retry_count = 0
 			end
 			spider_data.dropoff_retry_count = spider_data.dropoff_retry_count + 1
 			
-			-- If we've retried too many times, abort
 			if spider_data.dropoff_retry_count > 5 then
-				-- Too many retries, something is wrong - end journey
 				journey.end_journey(unit_number, true)
 				return
 			end
 			
-			-- Retry by setting destination to requester again
 			if requester and requester.valid then
 				pathing.set_smart_destination(spider, requester.position, requester)
 			else
-				-- Requester is invalid, abort
 				journey.end_journey(unit_number, true)
 			end
 			return
@@ -1119,9 +1472,20 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		-- Successfully dropped off, reset retry counter
 		spider_data.dropoff_retry_count = nil
 		
-		-- logging.info("Dropoff", "Dropoff successful: " .. actually_inserted .. " items delivered")
-		journey.end_journey(unit_number, true)
-		journey.deposit_already_had(spider_data)
+		-- logging.info("Dropoff", "Dropoff successful: " .. total_delivered .. " items delivered")
+		
+		-- Check if spider has a route - if so, advance to next stop
+		if spider_data.route and spider_data.current_route_index then
+			local advanced = journey.advance_route(unit_number)
+			if not advanced then
+				-- Route complete or failed, journey already ended
+				return
+			end
+		else
+			-- No route, end journey normally
+			journey.end_journey(unit_number, true)
+			journey.deposit_already_had(spider_data)
+		end
 	elseif spider_data.status == constants.dumping_items then
 		-- Handle dumping items to storage chest
 		local dump_target = spider_data.dump_target
@@ -1567,3 +1931,4 @@ end)
 
 script.on_init(setup)
 script.on_configuration_changed(setup)
+

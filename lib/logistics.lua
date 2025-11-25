@@ -58,7 +58,7 @@ function logistics.spiders()
 		available_count = available_count + #spids
 	end
 	
-	logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
+	-- logging.debug("Spiders", "Total: " .. total_spiders .. " | Available: " .. available_count .. " | Inactive: " .. inactive_count .. " | Busy: " .. busy_count .. " | No network: " .. no_network_count .. " | Has driver: " .. has_driver_count)
 	
 	return valid
 end
@@ -148,12 +148,12 @@ function logistics.providers()
 	for _, provider_data in pairs(storage.providers) do
 		local provider = provider_data.entity
 		if not provider.valid then 
-			logging.debug("Providers", "Provider chest invalid, skipping")
+			-- logging.debug("Providers", "Provider chest invalid, skipping")
 			goto continue 
 		end
 			
 		if provider.to_be_deconstructed() then 
-			logging.debug("Providers", "Provider chest marked for deconstruction, skipping")
+			-- logging.debug("Providers", "Provider chest marked for deconstruction, skipping")
 			goto continue 
 		end
 		
@@ -193,7 +193,7 @@ function logistics.providers()
 		end
 		
 		if next(contains) == nil then 
-			logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is empty, skipping")
+			-- logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is empty, skipping")
 			goto continue 
 		end
 		
@@ -202,7 +202,7 @@ function logistics.providers()
 		for item_name, count in pairs(contains) do
 			table.insert(item_list, item_name .. " x" .. count)
 		end
-		logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") has items: " .. table.concat(item_list, ", "))
+		-- logging.debug("Providers", "Provider chest at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") has items: " .. table.concat(item_list, ", "))
 		provider_data.contains = contains
 		
 		-- Use surface-based network key
@@ -301,7 +301,7 @@ end
 function logistics.assign_spider(spiders, requester_data, provider_data, can_provide)
 	local provider = provider_data.entity
 	if not provider.valid then 
-		logging.warn("Assignment", "Provider entity is invalid")
+		-- logging.warn("Assignment", "Provider entity is invalid")
 		return false 
 	end
 	local item = requester_data.requested_item
@@ -355,16 +355,16 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	}
 	
 	if #provider_near_nests > 0 then
-		logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		-- logging.warn("Assignment", "Provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #provider_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
 	if #requester_near_nests > 0 then
-		logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
+		-- logging.warn("Assignment", "Requester at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. ") is in dangerous territory (within " .. DANGEROUS_TERRITORY_DISTANCE .. " tiles of " .. #requester_near_nests .. " enemy nest(s)) - REJECTING assignment")
 		return false
 	end
 	
-	logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
+	-- logging.debug("Assignment", "Finding spider from " .. #spiders .. " available spiders")
 	
 	for i, canidate in ipairs(spiders) do
 		-- Check if spider can insert item into trunk inventory
@@ -387,7 +387,7 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 			
 			-- Skip spiders that can't traverse water if destination is on water
 			if (provider_is_water or requester_is_water) and not can_water then
-				logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
+				-- logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
 				goto next_spider
 			end
 			
@@ -398,19 +398,19 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 				spider = canidate
 				best_distance = dist
 				spider_index = i
-				logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
+				-- logging.info("Assignment", "  -> Currently best spider (distance: " .. string.format("%.2f", dist) .. ")")
 			end
 		else
-			logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
+			-- logging.debug("Assignment", "Spider " .. canidate.unit_number .. " cannot insert " .. item .. " (inventory full)")
 		end
 		::next_spider::
 	end
 	if not spider then 
-		logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
+		-- logging.warn("Assignment", "No suitable spider found (inventory full or no spiders available)")
 		return false 
 	end
 	
-	logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
+	-- logging.info("Assignment", "Selected spider " .. spider.unit_number .. " at distance " .. string.format("%.2f", best_distance) .. " from provider")
 	-- logging.info("Assignment", "Spider current position: (" .. math.floor(spider.position.x) .. "," .. math.floor(spider.position.y) .. ")")
 	
 	local spider_data = storage.spiders[spider.unit_number]
@@ -441,15 +441,15 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	spider_data.payload_item = item
 	spider_data.payload_item_count = can_provide
 	
-	logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
-	logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+	-- logging.info("Assignment", "Spider " .. spider.unit_number .. " STATUS SET TO: picking_up")
+	-- logging.info("Assignment", "Setting destination to provider at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 	
 	-- Set destination using pathing
 	local pathing_success = pathing.set_smart_destination(spider, provider.position, provider)
 	
 	if not pathing_success then
 		-- Pathfinding request failed - cancel the assignment
-		logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
+		-- logging.warn("Assignment", "Pathfinding request failed, cancelling assignment for spider " .. spider.unit_number)
 		-- Revert spider status
 		spider_data.status = constants.idle
 		spider_data.requester_target = nil
@@ -475,6 +475,194 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	-- logging.info("Assignment", "=== SPIDER JOB ASSIGNED SUCCESSFULLY ===")
 	-- logging.info("Assignment", "Spider " .. spider.unit_number .. " will pick up " .. can_provide .. " " .. item .. " and deliver to requester")
 
+	remove(spiders, spider_index)
+	return true
+end
+
+-- Check if assignment should be delayed to batch more items
+function logistics.should_delay_assignment(requester_data, provider_data, can_provide, real_amount, percentage_filled)
+	-- Check priority/urgency - if requester is critical, never delay
+	if percentage_filled < constants.critical_fill_threshold then
+		return false  -- Urgent request, don't delay
+	end
+	
+	-- Check availability ratio
+	local availability_ratio = can_provide / real_amount
+	if availability_ratio < constants.min_availability_ratio then
+		-- Low availability, should delay
+		-- But also check distance to see if we should wait longer
+		local provider = provider_data.entity
+		local requester = requester_data.entity
+		local distance = utils.distance(provider.position, requester.position)
+		
+		-- Calculate minimum items needed based on distance
+		-- Longer distances = need more items to justify the trip
+		-- Scale applies to all distances, with base as a reference point
+		local min_items_for_distance
+		if distance > constants.distance_delay_base then
+			-- For long distances: use full scaling from base
+			local extra_distance = distance - constants.distance_delay_base
+			min_items_for_distance = 1 + (extra_distance * constants.distance_delay_multiplier)
+		else
+			-- For short distances: use reduced scaling to ensure delays still happen
+			-- At distance 0: need 1 item, at distance 200: need ~11 items
+			min_items_for_distance = 1 + (distance * constants.distance_delay_multiplier * 0.5)
+		end
+		
+		-- Delay if we have fewer items than the distance-based minimum
+		if can_provide < min_items_for_distance then
+			logging.debug("Assignment", "Delaying assignment: can_provide=" .. can_provide .. 
+				", real_amount=" .. real_amount .. ", ratio=" .. string.format("%.2f", availability_ratio) ..
+				", distance=" .. string.format("%.1f", distance) .. 
+				", min_items=" .. string.format("%.1f", min_items_for_distance))
+			return true
+		end
+	end
+	
+	return false  -- Don't delay
+end
+
+-- Assign spider with a multi-stop route
+function logistics.assign_spider_with_route(spiders, route, route_type)
+	if not route or #route == 0 then
+		-- logging.warn("Assignment", "Cannot assign route: route is empty")
+		return false
+	end
+	
+	-- Find best spider for the route (closest to first stop)
+	local first_stop = route[1]
+	if not first_stop or not first_stop.entity or not first_stop.entity.valid then
+		-- logging.warn("Assignment", "Cannot assign route: first stop is invalid")
+		return false
+	end
+	
+	local first_position = first_stop.entity.position
+	local spider
+	local best_distance
+	local spider_index
+	local remove = table.remove
+	
+	for i, candidate in ipairs(spiders) do
+		-- Check if spider can handle the route (basic inventory check)
+		local trunk = candidate.get_inventory(defines.inventory.spider_trunk)
+		if trunk then
+			local candidate_position = candidate.position
+			local dist = utils.distance(first_position.x, first_position.y, candidate_position.x, candidate_position.y)
+			
+			if not spider or best_distance > dist then
+				spider = candidate
+				best_distance = dist
+				spider_index = i
+			end
+		end
+	end
+	
+	if not spider then
+		-- logging.warn("Assignment", "No suitable spider found for route")
+		return false
+	end
+	
+	local spider_data = storage.spiders[spider.unit_number]
+	
+	-- Allocate items from providers and track incoming items for requesters
+	for _, stop in ipairs(route) do
+		if stop.type == "pickup" and stop.entity and stop.entity.valid then
+			local provider_data = storage.providers[stop.entity.unit_number]
+			if provider_data and not provider_data.is_robot_chest then
+				if not provider_data.allocated_items then
+					provider_data.allocated_items = {}
+				end
+				provider_data.allocated_items[stop.item] = (provider_data.allocated_items[stop.item] or 0) + stop.amount
+			end
+		elseif stop.type == "delivery" and stop.entity and stop.entity.valid then
+			local requester_data = storage.requesters[stop.entity.unit_number]
+			if requester_data then
+				if not requester_data.incoming_items then
+					requester_data.incoming_items = {}
+				end
+				if stop.item then
+					-- Single item delivery
+					requester_data.incoming_items[stop.item] = (requester_data.incoming_items[stop.item] or 0) + stop.amount
+				elseif stop.items then
+					-- Multi-item delivery
+					for item, amount in pairs(stop.items) do
+						requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) + amount
+					end
+				end
+			end
+		end
+	end
+	
+	-- Update spider data with route
+	spider_data.status = constants.picking_up
+	spider_data.route = route
+	spider_data.route_type = route_type
+	spider_data.current_route_index = 1
+	
+	-- Set initial destination to first stop
+	local first_stop_entity = route[1].entity
+	spider_data.provider_target = first_stop_entity  -- Will be updated as route progresses
+	spider_data.requester_target = nil  -- Will be set when we reach delivery stops
+	
+	-- Set payload info from first pickup
+	if route[1].type == "pickup" then
+		spider_data.payload_item = route[1].item
+		spider_data.payload_item_count = route[1].amount
+		-- logging.info("RouteAssign", "Spider " .. spider.unit_number .. " assigned to " .. route_type .. " route")
+		-- logging.info("RouteAssign", "  Route has " .. #route .. " stops")
+		-- logging.info("RouteAssign", "  First stop: " .. route[1].type .. " at (" .. math.floor(first_stop_entity.position.x) .. "," .. math.floor(first_stop_entity.position.y) .. ")")
+		-- logging.info("RouteAssign", "  First pickup: " .. route[1].item .. " x" .. route[1].amount)
+	else
+		-- logging.warn("RouteAssign", "First stop is not a pickup!")
+	end
+	
+	-- Set destination using pathing
+	-- logging.info("RouteAssign", "Setting destination to first stop...")
+	local pathing_success = pathing.set_smart_destination(spider, first_stop_entity.position, first_stop_entity)
+	
+	if not pathing_success then
+		-- logging.warn("Assignment", "Pathfinding request failed for route, cancelling assignment")
+		-- Revert allocations
+		for _, stop in ipairs(route) do
+			if stop.type == "pickup" and stop.entity and stop.entity.valid then
+				local provider_data = storage.providers[stop.entity.unit_number]
+				if provider_data and not provider_data.is_robot_chest and provider_data.allocated_items then
+					provider_data.allocated_items[stop.item] = (provider_data.allocated_items[stop.item] or 0) - stop.amount
+					if provider_data.allocated_items[stop.item] <= 0 then
+						provider_data.allocated_items[stop.item] = nil
+					end
+				end
+			elseif stop.type == "delivery" and stop.entity and stop.entity.valid then
+				local requester_data = storage.requesters[stop.entity.unit_number]
+				if requester_data and requester_data.incoming_items then
+					if stop.item then
+						requester_data.incoming_items[stop.item] = (requester_data.incoming_items[stop.item] or 0) - stop.amount
+						if requester_data.incoming_items[stop.item] <= 0 then
+							requester_data.incoming_items[stop.item] = nil
+						end
+					elseif stop.items then
+						for item, amount in pairs(stop.items) do
+							requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - amount
+							if requester_data.incoming_items[item] <= 0 then
+								requester_data.incoming_items[item] = nil
+							end
+						end
+					end
+				end
+			end
+		end
+		-- Revert spider status
+		spider_data.status = constants.idle
+		spider_data.route = nil
+		spider_data.route_type = nil
+		spider_data.current_route_index = nil
+		spider_data.provider_target = nil
+		spider_data.requester_target = nil
+		spider_data.payload_item = nil
+		spider_data.payload_item_count = 0
+		return false
+	end
+	
 	remove(spiders, spider_index)
 	return true
 end

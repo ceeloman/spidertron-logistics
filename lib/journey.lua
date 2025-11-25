@@ -8,7 +8,129 @@ local logging = require('lib.logging')
 
 local journey = {}
 
+-- Advance to next stop in route
+function journey.advance_route(unit_number)
+	local spider_data = storage.spiders[unit_number]
+	if not spider_data or not spider_data.route then
+		return false
+	end
+	
+	local spider = spider_data.entity
+	if not spider or not spider.valid then
+		return false
+	end
+	
+	local route = spider_data.route
+	local current_index = spider_data.current_route_index or 1
+	
+	-- Mark current stop as completed
+	if route[current_index] then
+		route[current_index].completed = true
+	end
+	
+	-- Move to next stop
+	current_index = current_index + 1
+	spider_data.current_route_index = current_index
+	
+	-- Check if route is complete
+	if current_index > #route then
+		-- logging.info("Journey", "Route complete for spider " .. unit_number)
+		-- Clear route and end journey
+		spider_data.route = nil
+		spider_data.route_type = nil
+		spider_data.current_route_index = nil
+		journey.end_journey(unit_number, true)
+		return false
+	end
+	
+	-- Get next stop
+	local next_stop = route[current_index]
+	if not next_stop or not next_stop.entity or not next_stop.entity.valid then
+		-- logging.warn("Journey", "Next stop in route is invalid, ending route")
+		spider_data.route = nil
+		spider_data.route_type = nil
+		spider_data.current_route_index = nil
+		journey.end_journey(unit_number, true)
+		return false
+	end
+	
+	-- Update spider data for next stop
+	if next_stop.type == "pickup" then
+		spider_data.status = constants.picking_up
+		spider_data.provider_target = next_stop.entity
+		spider_data.requester_target = nil
+		spider_data.payload_item = next_stop.item
+		spider_data.payload_item_count = next_stop.amount
+	elseif next_stop.type == "delivery" then
+		spider_data.status = constants.dropping_off
+		spider_data.requester_target = next_stop.entity
+		spider_data.provider_target = nil
+		-- Keep payload_item and payload_item_count from previous pickups
+		-- For multi-item deliveries, we'll handle all items
+	end
+	
+	-- Set destination to next stop
+	local pathing_success = pathing.set_smart_destination(spider, next_stop.entity.position, next_stop.entity)
+	if not pathing_success then
+		-- logging.warn("Journey", "Pathfinding to next route stop failed, ending route")
+		spider_data.route = nil
+		spider_data.route_type = nil
+		spider_data.current_route_index = nil
+		journey.end_journey(unit_number, true)
+		return false
+	end
+	
+	-- logging.info("Journey", "Spider " .. unit_number .. " advancing to route stop " .. current_index .. "/" .. #route .. " (" .. next_stop.type .. ")")
+	return true
+end
+
 function journey.end_journey(unit_number, find_beacon)
+	local spider_data = storage.spiders[unit_number]
+	if not spider_data then return end
+	if spider_data.status == constants.idle then return end
+	local spider = spider_data.entity
+	
+	-- If spider has a route, clear it
+	if spider_data.route then
+		spider_data.route = nil
+		spider_data.route_type = nil
+		spider_data.current_route_index = nil
+	end
+	
+	local item = spider_data.payload_item
+	local item_count = spider_data.payload_item_count
+	
+	local beacon_starting_point = spider
+	
+	local requester = spider_data.requester_target
+	if requester and requester.valid then
+		beacon_starting_point = requester
+		
+		local requester_data = storage.requesters[requester.unit_number]
+		if requester_data and item then
+			if not requester_data.incoming_items then
+				requester_data.incoming_items = {}
+			end
+			requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
+			if requester_data.incoming_items[item] <= 0 then
+				requester_data.incoming_items[item] = nil
+			end
+		end
+	end
+	
+	if spider_data.status == constants.picking_up then
+		local provider = spider_data.provider_target
+		if provider and provider.valid then
+			beacon_starting_point = provider
+			
+			local provider_data = storage.providers[provider.unit_number]
+			if provider_data and provider_data.allocated_items and item then
+				local allocated_items = provider_data.allocated_items
+				allocated_items[item] = (allocated_items[item] or 0) - item_count
+				if allocated_items[item] <= 0 then allocated_items[item] = nil end
+			end
+		end
+	end
 	local spider_data = storage.spiders[unit_number]
 	if not spider_data then return end
 	if spider_data.status == constants.idle then return end
