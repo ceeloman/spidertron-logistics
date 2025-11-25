@@ -36,6 +36,16 @@ function terrain.is_position_on_water(surface, position, check_radius)
 	return false
 end
 
+-- Check if a position is directly on water (exact tile only, no radius)
+function terrain.is_position_directly_on_water(surface, position)
+	local tile = surface.get_tile(math.floor(position.x), math.floor(position.y))
+	if tile and tile.valid then
+		local tile_name = tile.name:lower()
+		return tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
+	end
+	return false
+end
+
 -- Check if a position is near a corner cliff (2+ cliffs at different angles)
 function terrain.is_position_near_corner_cliff(surface, position, check_radius)
 	check_radius = check_radius or 2.5  -- Default: check 2.5 tiles radius
