@@ -217,7 +217,7 @@ function logistics.providers()
 				if not robot_network then goto next_chest end
 				
 				-- Find nearest beacon for this chest
-				local nearest_beacon = beacon_assignment.find_nearest_beacon(chest.surface, chest.position, chest.force)
+				local nearest_beacon = beacon_assignment.find_nearest_beacon(chest.surface, chest.position, chest.force, nil, "logistics_scan_provider")
 				if not nearest_beacon then goto next_chest end
 				
 				-- Check if chest has items

@@ -51,7 +51,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 		-- Ensure requester has beacon assignment
 		if not requester_data.beacon_owner then
 			-- logging.warn("Beacon", "Requester opened but has no beacon_owner, assigning...")
-			beacon_assignment.assign_chest_to_nearest_beacon(entity)
+			beacon_assignment.assign_chest_to_nearest_beacon(entity, nil, "gui_opened_no_beacon")
 			if requester_data.beacon_owner then
 				-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 			else
@@ -63,7 +63,7 @@ script.on_event(defines.events.on_gui_opened, function(event)
 			if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
 				-- logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
 				requester_data.beacon_owner = nil
-				beacon_assignment.assign_chest_to_nearest_beacon(entity)
+				beacon_assignment.assign_chest_to_nearest_beacon(entity, nil, "gui_opened_invalid_beacon")
 				if requester_data.beacon_owner then
 					-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 				else
@@ -303,7 +303,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 						if requester and requester.valid then
 							if not requester_data.beacon_owner then
 								-- logging.warn("Beacon", "Requester has no beacon_owner, assigning to nearest...")
-								beacon_assignment.assign_chest_to_nearest_beacon(requester)
+								beacon_assignment.assign_chest_to_nearest_beacon(requester, nil, "gui_confirm_no_beacon")
 								if requester_data.beacon_owner then
 									-- logging.info("Beacon", "Assigned requester to beacon " .. requester_data.beacon_owner)
 								else
@@ -315,7 +315,7 @@ script.on_event(defines.events.on_gui_click, function(event)
 								if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
 									-- logging.warn("Beacon", "Requester's beacon " .. requester_data.beacon_owner .. " is invalid, reassigning...")
 									requester_data.beacon_owner = nil
-									beacon_assignment.assign_chest_to_nearest_beacon(requester)
+									beacon_assignment.assign_chest_to_nearest_beacon(requester, nil, "gui_confirm_invalid_beacon")
 									if requester_data.beacon_owner then
 										-- logging.info("Beacon", "Reassigned requester to beacon " .. requester_data.beacon_owner)
 									else
@@ -354,12 +354,36 @@ script.on_event(defines.events.on_gui_click, function(event)
 		if gui_data and gui_data.buttons then
 			for i, button_data in ipairs(gui_data.buttons) do
 				if button_data and button_data.slot_button and button_data.slot_button.valid and button_data.slot_button == element then
-					gui.open_item_selector_gui(player_index, i, gui_data, gui_data.last_opened_requester)
+					-- Right-click to clear slot
+					if event.button == defines.mouse_button_type.right then
+						local requester_data = gui_data.last_opened_requester
+						if requester_data and requester_data.requested_items then
+							-- Build sorted item list to find item at this slot position
+							local item_list = {}
+							for item_name, count in pairs(requester_data.requested_items) do
+								if count > 0 and item_name and item_name ~= '' then
+									table.insert(item_list, {name = item_name, count = count})
+								end
+							end
+							table.sort(item_list, function(a, b) return a.name < b.name end)
+							
+							-- Remove item at this slot position
+							if i <= #item_list then
+								requester_data.requested_items[item_list[i].name] = nil
+								-- Update GUI
+								gui.update_requester_gui(gui_data, requester_data)
+							end
+						end
+					else
+						-- Left-click to open item selector modal
+						gui.open_item_selector_gui(player_index, i, gui_data, gui_data.last_opened_requester)
+					end
 					return
 				end
 			end
 		end
 	end
+	
 end)
 
 script.on_event(defines.events.on_entity_settings_pasted, function(event)
@@ -595,39 +619,34 @@ script.on_nth_tick(constants.update_cooldown, function(event)
 	end
 	
 	-- Re-validate beacon assignments periodically
-	-- Only check a subset of chests each tick to spread the load
-	-- Check all chests over ~10 seconds instead of all at once every second
+	-- Check all chests every 10 ticks to ensure they have valid beacon assignments
 	if event.tick % 10 == 0 then
-		local check_interval = 600  -- Check each chest every 10 seconds (600 ticks)
-		local chest_index = (event.tick / 10) % check_interval
-		
-		-- Check requesters
+		-- Check all requesters every 10 ticks (no modulo - same as providers)
 		for unit_number, requester_data in pairs(storage.requesters) do
-			if (unit_number % check_interval) == chest_index then
-				if requester_data.entity and requester_data.entity.valid then
-					if not requester_data.beacon_owner then
-						beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
-					else
-						local beacon_data = storage.beacons[requester_data.beacon_owner]
-						if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
-							requester_data.beacon_owner = nil
-							beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
-						end
+			if requester_data.entity and requester_data.entity.valid then
+				if not requester_data.beacon_owner then
+					beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity, nil, "periodic_validation_no_beacon")
+				else
+					local beacon_data = storage.beacons[requester_data.beacon_owner]
+					if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
+						requester_data.beacon_owner = nil
+						beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity, nil, "periodic_validation_invalid_beacon")
 					end
 				end
 			end
 		end
 		
+		-- Check all providers every 10 ticks
 		for _, provider_data in pairs(storage.providers) do
 			if provider_data.entity and provider_data.entity.valid then
 				if not provider_data.beacon_owner then
-					beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+					beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity, nil, "periodic_validation_no_beacon")
 				else
 					-- Verify beacon still exists and is valid
 					local beacon_data = storage.beacons[provider_data.beacon_owner]
 					if not beacon_data or not beacon_data.entity or not beacon_data.entity.valid then
 						provider_data.beacon_owner = nil
-						beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+						beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity, nil, "periodic_validation_invalid_beacon")
 					end
 				end
 			end
@@ -944,9 +963,18 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 		
 		if actually_inserted ~= 0 then
 			provider.remove_item{name = item, count = actually_inserted}
-			-- Only track pickup_count for custom provider chests
+			-- Track pickup_count for custom provider chests
 			if not is_robot_chest and provider_data then
 				provider_data.pickup_count = (provider_data.pickup_count or 0) + actually_inserted
+			elseif is_robot_chest then
+				-- For robot chests, assign pickup count to nearest spidertron provider depot
+				local nearest_provider = beacon_assignment.find_nearest_provider_chest(provider.surface, provider.position, provider.force)
+				if nearest_provider then
+					local nearest_provider_data = storage.providers[nearest_provider.unit_number]
+					if nearest_provider_data then
+						nearest_provider_data.pickup_count = (nearest_provider_data.pickup_count or 0) + actually_inserted
+					end
+				end
 			end
 			rendering.draw_withdraw_icon(provider)
 		end
@@ -1244,8 +1272,11 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 	end
 end)
 
-script.on_event(defines.events.on_entity_died, function(event)
-	local unit_number = event.unit_number
+local function handle_entity_removal(event)
+	local entity = event.entity or event.created_entity
+	local unit_number = event.unit_number or (entity and entity.unit_number)
+	
+	if not unit_number then return end
 	
 	if storage.spiders[unit_number] then
 		journey.end_journey(unit_number, false)
@@ -1260,33 +1291,81 @@ script.on_event(defines.events.on_entity_died, function(event)
 		-- Reassign all chests from this beacon to other beacons
 		local beacon_data = storage.beacons[unit_number]
 		if beacon_data and beacon_data.assigned_chests then
-			-- logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
+			logging.info("Beacon", "Beacon " .. unit_number .. " destroyed, reassigning " .. #beacon_data.assigned_chests .. " chests")
+			-- Make a copy of the list since we'll be modifying it
+			local chests_to_reassign = {}
 			for _, chest_unit_number in ipairs(beacon_data.assigned_chests) do
+				table.insert(chests_to_reassign, chest_unit_number)
+			end
+			
+			-- CRITICAL: Remove beacon from storage BEFORE reassignment
+			-- This ensures find_nearest_beacon won't find it in storage validation
+			storage.beacons[unit_number] = nil
+			logging.info("Beacon", "Beacon " .. unit_number .. " removed from storage before reassignment")
+			
+			-- First, unassign all chests from this beacon
+			logging.info("Beacon", "Unassigning " .. #chests_to_reassign .. " chests from destroyed beacon " .. unit_number)
+			for _, chest_unit_number in ipairs(chests_to_reassign) do
+				beacon_assignment.unassign_chest_from_beacon(chest_unit_number)
+			end
+			
+			-- Then, reassign each chest to the nearest available beacon (excluding the destroyed one)
+			-- Use assign_chest_to_nearest_beacon which properly handles both providers and requesters
+			logging.info("Beacon", "Reassigning " .. #chests_to_reassign .. " chests to nearest beacons")
+			for _, chest_unit_number in ipairs(chests_to_reassign) do
 				local chest = nil
+				local chest_type = "unknown"
+				
 				if storage.providers[chest_unit_number] then
 					chest = storage.providers[chest_unit_number].entity
-					-- Clear beacon_owner
-					if storage.providers[chest_unit_number] then
-						storage.providers[chest_unit_number].beacon_owner = nil
-					end
+					chest_type = "provider"
+					logging.info("Beacon", "Reassigning provider chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
 				elseif storage.requesters[chest_unit_number] then
 					chest = storage.requesters[chest_unit_number].entity
-					-- Clear beacon_owner
-					if storage.requesters[chest_unit_number] then
-						storage.requesters[chest_unit_number].beacon_owner = nil
-					end
+					chest_type = "requester"
+					logging.info("Beacon", "Reassigning requester chest " .. chest_unit_number .. " (entity valid: " .. tostring(chest and chest.valid) .. ")")
+				else
+					logging.warn("Beacon", "Chest " .. chest_unit_number .. " not found in providers or requesters storage")
 				end
+				
 				if chest and chest.valid then
-					beacon_assignment.assign_chest_to_nearest_beacon(chest)
+					-- Use assign_chest_to_nearest_beacon which properly handles both providers and requesters
+					-- Pass the destroyed beacon's unit_number to exclude it from the search
+					logging.info("Beacon", "Calling assign_chest_to_nearest_beacon for " .. chest_type .. " chest " .. chest_unit_number .. " (excluding beacon " .. unit_number .. ")")
+					beacon_assignment.assign_chest_to_nearest_beacon(chest, unit_number, "beacon_removal")
+					
+					-- Verify assignment succeeded
+					if chest_type == "provider" and storage.providers[chest_unit_number] then
+						local new_beacon = storage.providers[chest_unit_number].beacon_owner
+						if new_beacon then
+							logging.info("Beacon", "Provider chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
+						else
+							logging.warn("Beacon", "Provider chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
+						end
+					elseif chest_type == "requester" and storage.requesters[chest_unit_number] then
+						local new_beacon = storage.requesters[chest_unit_number].beacon_owner
+						if new_beacon then
+							logging.info("Beacon", "Requester chest " .. chest_unit_number .. " successfully reassigned to beacon " .. new_beacon)
+						else
+							logging.warn("Beacon", "Requester chest " .. chest_unit_number .. " reassignment FAILED - no beacon_owner set")
+						end
+					end
+				else
+					logging.warn("Beacon", "Cannot reassign " .. chest_type .. " chest " .. chest_unit_number .. " - entity invalid or missing")
 				end
 			end
+		else
+			-- No chests to reassign, just clean up
+			storage.beacons[unit_number] = nil
 		end
-		-- Clean up beacon assignments
-		storage.beacon_assignments[unit_number] = nil
-		storage.beacons[unit_number] = nil
-		-- logging.info("Beacon", "Beacon " .. unit_number .. " cleaned up")
+		logging.info("Beacon", "Beacon " .. unit_number .. " cleanup complete")
 	end
-end)
+end
+
+script.on_event(defines.events.on_entity_died, handle_entity_removal)
+script.on_event(defines.events.on_pre_player_mined_item, handle_entity_removal)
+script.on_event(defines.events.on_robot_pre_mined, handle_entity_removal)
+script.on_event(defines.events.script_raised_destroy, handle_entity_removal)
 
 local function built(event)
 	local entity = event.created_entity or event.entity
@@ -1400,7 +1479,7 @@ local function setup()
 	for _, provider_data in pairs(storage.providers) do
 		if provider_data.entity and provider_data.entity.valid then
 			if not provider_data.beacon_owner then
-				beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity)
+				beacon_assignment.assign_chest_to_nearest_beacon(provider_data.entity, nil, "setup_on_load")
 			end
 		end
 	end
@@ -1408,7 +1487,7 @@ local function setup()
 	for _, requester_data in pairs(storage.requesters) do
 		if requester_data.entity and requester_data.entity.valid then
 			if not requester_data.beacon_owner then
-				beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity)
+				beacon_assignment.assign_chest_to_nearest_beacon(requester_data.entity, nil, "setup_on_load")
 			end
 		end
 	end
@@ -1434,9 +1513,9 @@ script.on_event(defines.events.on_tick, function(event)
 	-- Only check every 10 ticks for performance
 	if event.tick % 10 ~= 0 then return end
 	
-	-- Check all players for selected entities
+	-- Check all players for selected/hovered entities
 	for _, player in pairs(game.players) do
-		if player and player.valid and player.selected then
+		if player and player.valid then
 			local entity = player.selected
 			if entity and entity.valid then
 				-- Check if it's a chest or beacon
@@ -1445,6 +1524,31 @@ script.on_event(defines.events.on_tick, function(event)
 				   entity.name == constants.spidertron_logistic_beacon then
 					-- Draw connection lines
 					rendering.draw_connection_lines(entity)
+				end
+				
+				-- Handle beacon tooltip GUI
+				-- TODO: Temporarily disabled until a better solution is found
+				--[[
+				if entity.name == constants.spidertron_logistic_beacon then
+					local beacon_data = storage.beacons[entity.unit_number]
+					if beacon_data then
+						gui.add_beacon_info_frame(player, entity, beacon_data)
+					end
+				else
+					-- Not a beacon, remove beacon GUI if it exists
+					if player.gui.screen["spidertron_beacon_info_frame"] then
+						player.gui.screen["spidertron_beacon_info_frame"].destroy()
+					end
+				end
+				--]]
+				-- Always remove beacon GUI if it exists (cleanup)
+				if player.gui.screen["spidertron_beacon_info_frame"] then
+					player.gui.screen["spidertron_beacon_info_frame"].destroy()
+				end
+			else
+				-- No entity selected, remove beacon GUI if it exists
+				if player.gui.screen["spidertron_beacon_info_frame"] then
+					player.gui.screen["spidertron_beacon_info_frame"].destroy()
 				end
 			end
 		end

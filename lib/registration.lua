@@ -15,7 +15,7 @@ function registration.register_provider(provider)
 	}
 	script.register_on_object_destroyed(provider)
 	-- Assign to nearest beacon
-	beacon_assignment.assign_chest_to_nearest_beacon(provider)
+	beacon_assignment.assign_chest_to_nearest_beacon(provider, nil, "register_provider")
 end
 
 function registration.register_requester(requester, tags)
@@ -49,7 +49,7 @@ function registration.register_requester(requester, tags)
 	}
 	script.register_on_object_destroyed(requester)
 	-- Assign to nearest beacon
-	beacon_assignment.assign_chest_to_nearest_beacon(requester)
+	beacon_assignment.assign_chest_to_nearest_beacon(requester, nil, "register_requester")
 end
 
 function registration.register_spider(spider)

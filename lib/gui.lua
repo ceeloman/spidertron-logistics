@@ -321,5 +321,124 @@ function gui.update_requester_gui(gui_data, requester_data)
 	end
 end
 
+function gui.add_beacon_info_frame(player, beacon, beacon_data)
+	-- Always destroy and recreate to ensure fresh data and correct positioning
+	if player.gui.screen["spidertron_beacon_info_frame"] then
+		player.gui.screen["spidertron_beacon_info_frame"].destroy()
+	end
+	
+	-- Recalculate totals from assigned chests each time (beacon aggregates from its chests)
+	-- The beacon doesn't have its own counts - it sums up pickup_count and dropoff_count
+	-- from all assigned provider and requester chests
+	local total_pickups = 0
+	local total_dropoffs = 0
+	local chest_count = 0
+	
+	if beacon_data.assigned_chests then
+		-- Count only valid chests (that still exist in storage)
+		-- Also clean up invalid entries from the list
+		local valid_chest_count = 0
+		local valid_chests = {}
+		
+		for _, chest_unit_number in ipairs(beacon_data.assigned_chests) do
+			local provider_data = storage.providers[chest_unit_number]
+			local requester_data = storage.requesters[chest_unit_number]
+			
+			-- Only count if chest data still exists (chest hasn't been destroyed)
+			if provider_data then
+				valid_chest_count = valid_chest_count + 1
+				table.insert(valid_chests, chest_unit_number)
+				total_pickups = total_pickups + (provider_data.pickup_count or 0)
+				total_dropoffs = total_dropoffs + (provider_data.dropoff_count or 0)
+			elseif requester_data then
+				valid_chest_count = valid_chest_count + 1
+				table.insert(valid_chests, chest_unit_number)
+				total_pickups = total_pickups + (requester_data.pickup_count or 0)
+				total_dropoffs = total_dropoffs + (requester_data.dropoff_count or 0)
+			end
+			-- If neither exists, the chest was destroyed - don't add to valid_chests
+		end
+		
+		-- Update the assigned_chests list to remove invalid entries
+		if #valid_chests < #beacon_data.assigned_chests then
+			beacon_data.assigned_chests = valid_chests
+		end
+		
+		chest_count = valid_chest_count
+	end
+	
+	-- Create a frame as screen GUI (tooltips don't support relative GUI anchoring)
+	local frame = player.gui.screen.add{
+		type = "frame",
+		name = "spidertron_beacon_info_frame",
+		style = "slot_button_deep_frame",
+		direction = "vertical"
+	}
+	
+	frame.style.width = 200
+	frame.style.right_padding = 10
+	frame.style.top_padding = 10
+	frame.style.bottom_padding = 10
+	frame.style.left_padding = 10
+	
+	-- Title label
+	local title = frame.add{
+		type = "label",
+		caption = "Logistic Network",
+		style = "heading_2_label"
+	}
+	title.style.top_margin = 2
+	title.style.bottom_margin = 4
+	
+	-- Assigned chests count
+	local chest_label = frame.add{
+		type = "label",
+		name = "beacon_chest_count",
+		caption = "Assigned Chests: " .. tostring(chest_count)
+	}
+	chest_label.style.top_margin = 2
+	
+	-- Total pickups
+	local pickup_label = frame.add{
+		type = "label",
+		name = "beacon_pickup_count",
+		caption = "Total Pickups: " .. tostring(total_pickups)
+	}
+	pickup_label.style.top_margin = 2
+	
+	-- Total dropoffs
+	local dropoff_label = frame.add{
+		type = "label",
+		name = "beacon_dropoff_count",
+		caption = "Total Dropoffs: " .. tostring(total_dropoffs)
+	}
+	dropoff_label.style.top_margin = 2
+	dropoff_label.style.bottom_margin = 2
+	
+	-- Position using bottom-right corner as reference point (100% - frame size)
+	-- Get actual frame size - width is explicitly set to 200
+	local screen_resolution = player.display_resolution
+	local frame_width = 200  -- Explicitly set width
+	
+	-- Calculate actual height from content we added:
+	-- - Padding: 10px top + 10px bottom = 20px
+	-- - Title label with margins: ~24px (20px content + 2px top + 2px bottom)
+	-- - 3 data labels with margins: ~66px (3 * 22px each: 20px content + 2px top)
+	-- - Bottom margin on last label: 2px
+	-- Total: 20 + 24 + 66 + 2 = 112px, round up to 120px for safety
+	local frame_height = 120
+	
+	-- Position top-left corner so that bottom-right of frame is at screen's bottom-right (100%)
+	-- Reference point: bottom-right corner of frame at bottom-right of screen
+	-- Calculate position: screen_size - frame_size - padding (moves up and left by frame size + padding)
+	-- Pad right by frame width and bottom by frame height
+	local x_pos = screen_resolution.width - frame_width - frame_width  -- Right edge minus frame width minus padding (frame width)
+	local y_pos = screen_resolution.height - frame_height - frame_height  -- Bottom edge minus frame height minus padding (frame height)
+	
+	frame.location = {x_pos, y_pos}
+	
+	return frame
+end
+
 return gui
 
