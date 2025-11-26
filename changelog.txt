@@ -1,4 +1,31 @@
 ---------------------------------------------------------------------------------------------------
+Version: 3.2.0
+  Features:
+    - Added manual dump button in GUI: players can now manually trigger item dumping for spidertrons
+    - Enhanced spidertron activation and deactivation: improved logic for GUI switch state handling with better responsiveness
+    - Improved item dumping checks: spiders now check for dumpable items during activation and efficiently manage inventory
+    - Multi-route assignment: spiders can now handle multi-item and multi-requester deliveries more efficiently
+  Pathfinding & Terrain:
+    - Enhanced water gap tolerance: spiders can now navigate over small water gaps by detecting crossings and finding closest land points
+    - Improved waypoint adjustments: better handling of water crossings that exceed spider's stepping capability
+    - Enhanced waypoint smoothing: prevents smoothing over water when spiders cannot traverse it, ensuring more accurate pathing
+    - Improved pathfinding with pre-validated waypoints: more efficient navigation to requesters using validated waypoint data
+    - Enhanced pathfinding safety: improved checks for detours around enemy nests and water crossings
+  Logistics & Assignment:
+    - Enhanced beacon assignment: context-aware parameters for nearest beacon search and assignment functions
+    - Improved beacon finding: new function to find beacons with highest pickup count for better assignment logic
+    - Streamlined network handling: changed from beacon-based to surface-wide network management
+    - Enhanced item management: improved helper function to retrieve logistic requests and better handling of dumpable items
+    - Improved journey management: better item handling during pickups and deliveries with refined dumpable item processing
+  Performance:
+    - Optimized path data cleanup: stored path data is now cleaned up after use
+  Bugfixes:
+    - Fixed item dumping logic to avoid dumping requested items
+    - Improved beacon assignment robustness during entity lifecycle events
+  Other:
+    - Enhanced logging: better visibility into route assignments and item handling processes
+    - Cleaned up commented-out debug statements for code clarity
+---------------------------------------------------------------------------------------------------
 Version: 3.1.0
   Features:
     - Added automatic item dumping: spiders now automatically dump excess items (items not needed for their logistic requests) into storage chests
