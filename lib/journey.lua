@@ -330,6 +330,66 @@ function journey.deposit_already_had(spider_data)
 	pathing.set_smart_destination(spider, requester.position, requester_data.entity)
 end
 
+-- Check if spider has items that need to be dumped
+function journey.has_dumpable_items(unit_number)
+	local spider_data = storage.spiders[unit_number]
+	if not spider_data then 
+		return false 
+	end
+	
+	local spider = spider_data.entity
+	if not spider or not spider.valid then 
+		return false 
+	end
+	
+	local trunk = spider.get_inventory(defines.inventory.spider_trunk)
+	if not trunk then 
+		return false 
+	end
+	
+	local contents = trunk.get_contents()
+	if not contents or next(contents) == nil then
+		return false
+	end
+	
+	-- Get spider's logistic requests to avoid dumping requested items
+	local logistic_requests = utils.get_spider_logistic_requests(spider)
+	
+	-- Check if spider has any non-requested items or excess items
+	for item_name, item_data in pairs(contents) do
+		-- Handle new format where item_data is a table with name/count/quality
+		local actual_item_name = item_name
+		local item_count = 0
+		
+		if type(item_data) == "table" and item_data.name then
+			-- New format: {name = "item", count = 50, quality = "normal"}
+			actual_item_name = item_data.name
+			item_count = item_data.count or 0
+		elseif type(item_data) == "number" then
+			-- Old format: item_name => count
+			item_count = item_data
+		elseif type(item_data) == "table" then
+			-- Quality format: {normal = 50, rare = 10}
+			for quality, qty in pairs(item_data) do
+				if type(qty) == "number" then
+					item_count = item_count + qty
+				end
+			end
+		end
+		
+		if actual_item_name and type(actual_item_name) == "string" and actual_item_name ~= "" and item_count > 0 then
+			local requested = logistic_requests[actual_item_name] or 0
+			local total = spider.get_item_count(actual_item_name)
+			
+			if requested == 0 or total > requested then
+				return true
+			end
+		end
+	end
+	
+	return false
+end
+
 -- Attempt to dump items from spider into a storage chest
 function journey.attempt_dump_items(unit_number)
 	local spider_data = storage.spiders[unit_number]

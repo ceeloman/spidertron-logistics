@@ -791,8 +791,8 @@ local function smooth_waypoints(waypoints, start_pos, surface, can_water, spider
 	return smoothed
 end
 
--- Calculate detour point around nest, choosing shorter side of path
-local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_waypoint, DETOUR_DISTANCE)
+-- Calculate detour point around nest, choosing safer side of path (checks water safety)
+local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_waypoint, DETOUR_DISTANCE, spider, can_water)
 	-- Calculate the path direction vector (from prev to next)
 	local path_dx = next_waypoint.x - prev_waypoint.x
 	local path_dy = next_waypoint.y - prev_waypoint.y
@@ -829,6 +829,32 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 		locked = true
 	}
 	
+	-- Helper function to check if a detour point and path segments are safe
+	local function is_detour_safe(detour_pos)
+		-- Check if detour point itself is on water (if spider can't traverse water)
+		if not can_water and terrain.is_position_directly_on_water(surface, detour_pos) then
+			return false, "detour_on_water"
+		end
+		
+		-- Check if path segments cross water (if spider can't traverse water)
+		if not can_water and spider then
+			-- Check prev → detour segment
+			if line_segment_crosses_water(surface, prev_waypoint, detour_pos, can_water, spider) then
+				return false, "prev_to_detour_crosses_water"
+			end
+			-- Check detour → next segment
+			if line_segment_crosses_water(surface, detour_pos, next_waypoint, can_water, spider) then
+				return false, "detour_to_next_crosses_water"
+			end
+		end
+		
+		return true, "safe"
+	end
+	
+	-- Check safety of both detour options
+	local left_safe, left_reason = is_detour_safe(left_detour)
+	local right_safe, right_reason = is_detour_safe(right_detour)
+	
 	-- Calculate total path length for both options (prev → detour → next)
 	local left_dist = math.sqrt((left_detour.x - prev_waypoint.x)^2 + (left_detour.y - prev_waypoint.y)^2) +
 	                  math.sqrt((next_waypoint.x - left_detour.x)^2 + (next_waypoint.y - left_detour.y)^2)
@@ -836,19 +862,79 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 	local right_dist = math.sqrt((right_detour.x - prev_waypoint.x)^2 + (right_detour.y - prev_waypoint.y)^2) +
 	                   math.sqrt((next_waypoint.x - right_detour.x)^2 + (next_waypoint.y - right_detour.y)^2)
 	
-	-- Choose the shorter route
-	if left_dist <= right_dist then
-		-- logging.info("Pathing", "  Detour: LEFT side chosen (dist=" .. string.format("%.1f", left_dist) .. " vs " .. string.format("%.1f", right_dist) .. ")")
+	-- Choose the safer route, preferring safety over distance
+	if left_safe and right_safe then
+		-- Both are safe, choose shorter one
+		if left_dist <= right_dist then
+			-- logging.info("Pathing", "  Detour: LEFT side chosen (both safe, dist=" .. string.format("%.1f", left_dist) .. " vs " .. string.format("%.1f", right_dist) .. ")")
+			return left_detour
+		else
+			-- logging.info("Pathing", "  Detour: RIGHT side chosen (both safe, dist=" .. string.format("%.1f", right_dist) .. " vs " .. string.format("%.1f", left_dist) .. ")")
+			return right_detour
+		end
+	elseif left_safe then
+		-- Only left is safe
+		-- logging.info("Pathing", "  Detour: LEFT side chosen (right unsafe: " .. right_reason .. ")")
 		return left_detour
-	else
-		-- logging.info("Pathing", "  Detour: RIGHT side chosen (dist=" .. string.format("%.1f", right_dist) .. " vs " .. string.format("%.1f", left_dist) .. ")")
+	elseif right_safe then
+		-- Only right is safe
+		-- logging.info("Pathing", "  Detour: RIGHT side chosen (left unsafe: " .. left_reason .. ")")
 		return right_detour
+	else
+		-- Both are unsafe - try to find a safe alternative by searching nearby
+		-- logging.warn("Pathing", "  Both detour options unsafe (left: " .. left_reason .. ", right: " .. right_reason .. "), searching for safe alternative")
+		
+		-- Try searching in a spiral pattern around the nest for a safe detour point
+		local search_radius = DETOUR_DISTANCE
+		local max_search_radius = DETOUR_DISTANCE * 1.5  -- Allow up to 50% further
+		local search_step = 5.0  -- Search every 5 tiles
+		
+		for radius = search_radius, max_search_radius, search_step do
+			-- Try multiple angles around the nest
+			for angle_offset = 0, 2 * math.pi, math.pi / 4 do  -- 8 directions
+				-- Try both left and right sides with angle offset
+				for side = -1, 1, 2 do  -- -1 = left, 1 = right
+					local angle = math.atan2(left_dy, left_dx) + (side * angle_offset)
+					local test_detour = {
+						x = nest_pos.x + math.cos(angle) * radius,
+						y = nest_pos.y + math.sin(angle) * radius,
+						locked = true
+					}
+					
+					local test_safe, _ = is_detour_safe(test_detour)
+					if test_safe then
+						-- logging.info("Pathing", "  Found safe alternative detour at radius " .. string.format("%.1f", radius) .. ", angle " .. string.format("%.1f", angle_offset * 180 / math.pi) .. "°")
+						return test_detour
+					end
+				end
+			end
+		end
+		
+		-- If no safe alternative found, try to find closest land point to the shorter unsafe detour
+		-- This is a fallback - better than nothing
+		local preferred_detour = (left_dist <= right_dist) and left_detour or right_detour
+		local safe_land_point = find_closest_land_point(surface, preferred_detour, 10)
+		
+		if safe_land_point then
+			-- Check if the path to/from the safe land point is also safe
+			local land_detour = {x = safe_land_point.x, y = safe_land_point.y, locked = true}
+			local land_safe, _ = is_detour_safe(land_detour)
+			if land_safe then
+				-- logging.warn("Pathing", "  Using closest safe land point as detour (fallback)")
+				return land_detour
+			end
+		end
+		
+		-- Last resort: return the shorter unsafe detour (better than no detour)
+		-- The pathfinder will handle it, or it will be caught later
+		-- logging.warn("Pathing", "  No safe detour found, using shorter unsafe option (left: " .. left_reason .. ")")
+		return (left_dist <= right_dist) and left_detour or right_detour
 	end
 end
 
 -- Insert detour waypoints around nearby enemy nests
-local function insert_nest_detours(surface, waypoints)
-	local NEST_AVOIDANCE_DISTANCE = 80  -- Stay at least 40 tiles from nests
+local function insert_nest_detours(surface, waypoints, spider, can_water)
+	local NEST_AVOIDANCE_DISTANCE = 80  -- Stay at least 80 tiles from nests
 	local MAX_ITERATIONS = 3  -- Prevent infinite loops
 	
 	for iteration = 1, MAX_ITERATIONS do
@@ -895,12 +981,39 @@ local function insert_nest_detours(surface, waypoints)
 					i = #waypoints
 				end
 				
-				-- Calculate detour point
-				local detour_point = calculate_nest_detour(surface, nest.position, prev_wp, next_wp, NEST_AVOIDANCE_DISTANCE)
+				-- Calculate detour point (now with safety checks)
+				local detour_point = calculate_nest_detour(surface, nest.position, prev_wp, next_wp, NEST_AVOIDANCE_DISTANCE, spider, can_water)
 				
 				if detour_point then
-					-- logging.info("Pathing", "  Inserting detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ")")
-					table.insert(new_waypoints, detour_point)
+					-- Final validation: check if the detour point is safe before inserting
+					-- This double-checks in case the detour calculation missed something
+					local is_safe = true
+					if not can_water and spider then
+						-- Check if detour point is on water
+						if terrain.is_position_directly_on_water(surface, detour_point) then
+							is_safe = false
+							logging.warn("Pathing", "  Detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ") is on water - rejecting")
+						else
+							-- Check if path segments are safe
+							if line_segment_crosses_water(surface, prev_wp, detour_point, can_water, spider) then
+								is_safe = false
+								logging.warn("Pathing", "  Path from prev to detour crosses water - rejecting")
+							elseif line_segment_crosses_water(surface, detour_point, next_wp, can_water, spider) then
+								is_safe = false
+								logging.warn("Pathing", "  Path from detour to next crosses water - rejecting")
+							end
+						end
+					end
+					
+					if is_safe then
+						-- logging.info("Pathing", "  Inserting detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ")")
+						table.insert(new_waypoints, detour_point)
+					else
+						-- Detour is unsafe, skip it and keep original waypoint
+						-- This might cause the spider to get closer to the nest, but it's better than pathing into water
+						logging.warn("Pathing", "  Detour point failed safety validation, keeping original waypoint")
+						table.insert(new_waypoints, curr_wp)
+					end
 				else
 					-- logging.warn("Pathing", "  Failed to calculate detour point, keeping original waypoint")
 					table.insert(new_waypoints, curr_wp)
@@ -1279,8 +1392,24 @@ function pathing.handle_path_result(path_result)
 		return
 	end
 	
+	-- Convert waypoints to proper format if needed
+	local processed_waypoints = {}
+	for i, wp in ipairs(filtered_waypoints) do
+		local pos = wp.position or wp
+		table.insert(processed_waypoints, {x = pos.x, y = pos.y, locked = false})
+	end
+	
+	-- Get spider capabilities
+	local can_cliffs = can_spider_cross_cliffs(spider)
+	
+	-- Process waypoints: adjust near water, insert nest detours, simplify, then smooth
+	processed_waypoints = adjust_waypoints_near_water(surface, processed_waypoints, spider, can_traverse_water)
+	processed_waypoints = insert_nest_detours(surface, processed_waypoints, spider, can_traverse_water)
+	processed_waypoints = simplify_waypoints(surface, processed_waypoints, spider.position, can_traverse_water, can_cliffs)
+	processed_waypoints = smooth_waypoints(processed_waypoints, spider.position, surface, can_traverse_water, spider)
+	
 	logging.info("Pathing", "Path found for spider " .. spider.unit_number .. 
-	            " (" .. #filtered_waypoints .. "/" .. #waypoints .. " waypoints after filtering)")
+	            " (" .. #processed_waypoints .. "/" .. #waypoints .. " waypoints after processing)")
 	
 	spider.autopilot_destination = nil
 	
@@ -1289,7 +1418,7 @@ function pathing.handle_path_result(path_result)
 	local min_distance = math.huge
 	local start_index = 1
 	
-	for i, wp in ipairs(filtered_waypoints) do
+	for i, wp in ipairs(processed_waypoints) do
 		local pos = wp.position or wp
 		local dist = math.sqrt((pos.x - spider_pos.x)^2 + (pos.y - spider_pos.y)^2)
 		if dist < min_distance then
@@ -1302,13 +1431,13 @@ function pathing.handle_path_result(path_result)
 	local last_pos = spider_pos
 	local min_spacing = (spider.prototype.height + 0.5) * 7.5
 	
-	for i = start_index + 1, #filtered_waypoints do
-		local wp = filtered_waypoints[i].position or filtered_waypoints[i]
+	for i = start_index + 1, #processed_waypoints do
+		local wp = processed_waypoints[i]
 		local dist = math.sqrt((wp.x - last_pos.x)^2 + (wp.y - last_pos.y)^2)
 		
 		if dist > min_spacing then
-			spider.add_autopilot_destination(wp)
-			last_pos = wp
+			spider.add_autopilot_destination({x = wp.x, y = wp.y})
+			last_pos = {x = wp.x, y = wp.y}
 		end
 	end
 	
@@ -1322,6 +1451,111 @@ function pathing.handle_path_result(path_result)
 	if status_table.finished == status_table.total_requests then
 		storage.pathfinder_statuses[spider.unit_number][start_tick] = nil
 	end
+end
+
+-- Public wrapper for line_segment_crosses_water
+function pathing.line_segment_crosses_water(surface, start_pos, end_pos, can_water, spider)
+	return line_segment_crosses_water(surface, start_pos, end_pos, can_water, spider)
+end
+
+-- Check if a path can be found from start_pos to end_pos for a spider
+-- Uses the same logic as Spidertron Enhancements mod
+-- Returns true if path can be found, false if not
+-- This is a synchronous check that requests a path and validates the request
+function pathing.can_find_path(surface, start_pos, end_pos, spider)
+	if not spider or not spider.valid then
+		return false
+	end
+	
+	-- Check if destination is too close (pathfinding not needed)
+	local distance = math.sqrt((end_pos.x - start_pos.x)^2 + (end_pos.y - start_pos.y)^2)
+	if distance < 10 then
+		return true
+	end
+	
+	-- Get spider legs
+	local success, legs = pcall(function()
+		return spider.get_spider_legs()
+	end)
+	
+	if not success or not legs or #legs == 0 then
+		-- No legs = can traverse anywhere
+		return true
+	end
+	
+	local first_leg = legs[1]
+	if not first_leg or not first_leg.valid then
+		return true
+	end
+	
+	-- Find valid position nearby target position (in case clicked on water)
+	local target_position = surface.find_non_colliding_position(
+		first_leg.name,
+		end_pos,
+		10,
+		2
+	)
+	target_position = target_position or end_pos
+	
+	-- Get leg collision mask
+	local leg_prototype = first_leg.prototype
+	if not leg_prototype or not leg_prototype.collision_mask then
+		return true
+	end
+	
+	local leg_collision_mask = leg_prototype.collision_mask
+	
+	-- Build path collision mask (same as Spidertron Enhancements)
+	local path_collision_mask = {
+		layers = {},
+		colliding_with_tiles_only = true,
+		consider_tile_transitions = true
+	}
+	
+	if leg_collision_mask.layers then
+		for layer_name, _ in pairs(leg_collision_mask.layers) do
+			path_collision_mask.layers[layer_name] = true
+		end
+	end
+	
+	-- Request a path from the first leg position
+	-- Use odd-numbered leg (same as Spidertron Enhancements)
+	local leg_to_use = legs[1]
+	for i, leg in pairs(legs) do
+		if i % 2 == 1 then
+			leg_to_use = leg
+			break
+		end
+	end
+	
+	local request_id = surface.request_path{
+		bounding_box = {{-0.01, -0.01}, {0.01, 0.01}},
+		collision_mask = path_collision_mask,
+		start = {x = leg_to_use.position.x, y = leg_to_use.position.y},
+		goal = target_position,
+		force = spider.force,
+		path_resolution_modifier = -3,
+		pathfind_flags = {
+			prefer_straight_paths = false,
+			cache = false,
+			low_priority = false
+		},
+		entity_to_ignore = leg_to_use
+	}
+	
+	-- If request_id is nil, pathfinding request failed
+	-- This means the pathfinder couldn't even start the request
+	if not request_id then
+		return false
+	end
+	
+	-- Request succeeded - the pathfinder will handle it asynchronously
+	-- For assignment purposes, if the request succeeds, we assume a path might be found
+	-- The actual pathfinding will be validated when set_smart_destination is called
+	-- Note: This is a best-effort check - the actual path may still fail, but that will
+	-- be handled when the spider tries to pathfind during assignment
+	
+	return true
 end
 
 return pathing

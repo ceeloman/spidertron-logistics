@@ -320,23 +320,7 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 	local spider_index
 	local remove = table.remove
 	
-	-- Check if provider or requester is on water
 	local surface = provider.surface
-	local provider_tile = surface.get_tile(math.floor(provider.position.x), math.floor(provider.position.y))
-	local requester_tile = surface.get_tile(math.floor(requester.position.x), math.floor(requester.position.y))
-	
-	local provider_is_water = false
-	local requester_is_water = false
-	
-	if provider_tile and provider_tile.valid then
-		local tile_name = provider_tile.name:lower()
-		provider_is_water = tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
-	end
-	
-	if requester_tile and requester_tile.valid then
-		local tile_name = requester_tile.name:lower()
-		requester_is_water = tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
-	end
 	
 	-- Check if provider or requester is in dangerous territory (within 80 tiles of enemy nests)
 	-- This matches the NEST_AVOIDANCE_DISTANCE used in pathing
@@ -370,25 +354,20 @@ function logistics.assign_spider(spiders, requester_data, provider_data, can_pro
 		-- Check if spider can insert item into trunk inventory
 		local trunk = canidate.get_inventory(defines.inventory.spider_trunk)
 		if trunk and trunk.can_insert({name = item, count = 1}) then
-			-- Check if spider can traverse water (if destination is on water)
+			-- Check if spider can traverse water (legs with "player" collision layer can't traverse water)
 			local can_water = pathing.can_spider_traverse_water(canidate)
 			
-			-- DEBUG: Log spider's collision mask
-			local prototype = canidate.prototype
-			local collision_mask_str = "none"
-			if prototype and prototype.collision_mask then
-				local mask_parts = {}
-				for _, layer in ipairs(prototype.collision_mask) do
-					table.insert(mask_parts, tostring(layer))
+			-- If spider can't traverse water, check if a path can be found
+			-- Uses the same logic as Spidertron Enhancements mod
+			if not can_water then
+				local provider_pos = provider.position
+				local requester_pos = requester.position
+				
+				-- Check if path can be found from provider to requester
+				if not pathing.can_find_path(surface, provider_pos, requester_pos, canidate) then
+					-- logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, no path found)")
+					goto next_spider
 				end
-				collision_mask_str = table.concat(mask_parts, ", ")
-			end
-			-- logging.info("Assignment", "Spider " .. canidate.unit_number .. " (" .. canidate.name .. "): can_water=" .. tostring(can_water) .. ", collision_mask=[" .. collision_mask_str .. "]")
-			
-			-- Skip spiders that can't traverse water if destination is on water
-			if (provider_is_water or requester_is_water) and not can_water then
-				-- logging.warn("Assignment", "Spider " .. canidate.unit_number .. " skipped (can't traverse water, destination on water)")
-				goto next_spider
 			end
 			
 			local canidate_position = canidate.position

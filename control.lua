@@ -146,9 +146,76 @@ script.on_event(defines.events.on_gui_switch_state_changed, function(event)
 		if vehicle and vehicle.valid and vehicle.type == 'spider-vehicle' then
 			local spider_data = storage.spiders[vehicle.unit_number]
 			if spider_data then
+				local was_active = spider_data.active or false
+				local new_active = (element.switch_state == "left")
+				
 				-- Update active state based on switch position
 				-- "left" = active, "right" = inactive
-				spider_data.active = (element.switch_state == "left")
+				spider_data.active = new_active
+				
+				-- Handle activation
+				if new_active and not was_active then
+					-- Spider is being activated
+					local spider = spider_data.entity
+					if spider and spider.valid and spider.get_driver() == nil then
+						-- Check if spider has items to dump
+						if journey.has_dumpable_items(vehicle.unit_number) then
+							-- Start dumping - beacon finding will happen after dump completes
+							journey.attempt_dump_items(vehicle.unit_number)
+						else
+							-- No items to dump, find a beacon immediately
+							local network = beacon_assignment.spidertron_network(spider)
+							if network then
+								-- Try to find beacon with highest pickup count
+								local active_beacon = beacon_assignment.find_beacon_with_highest_pickup_count(
+									spider.surface, 
+									spider.position, 
+									spider.force,
+									1000
+								)
+								
+								if active_beacon and active_beacon.valid then
+									pathing.set_smart_destination(spider, active_beacon.position, active_beacon)
+								else
+									-- Fallback to nearest beacon
+									local nearest_beacon = beacon_assignment.find_nearest_beacon(
+										spider.surface, 
+										spider.position, 
+										spider.force, 
+										nil, 
+										"activation_fallback"
+									)
+									if nearest_beacon then
+										pathing.set_smart_destination(spider, nearest_beacon.position, nearest_beacon)
+									end
+								end
+							end
+						end
+					end
+				-- Handle deactivation
+				elseif not new_active and was_active then
+					-- Spider is being deactivated
+					local spider = spider_data.entity
+					if spider and spider.valid then
+						-- Stop pathing - clear autopilot destinations
+						if spider.autopilot_destinations and #spider.autopilot_destinations > 0 then
+							spider.autopilot_destination = nil
+						end
+						
+						-- End current journey if any
+						if spider_data.status ~= constants.idle then
+							journey.end_journey(vehicle.unit_number, false)
+						end
+						
+						-- Set to idle
+						spider_data.status = constants.idle
+						spider_data.provider_target = nil
+						spider_data.requester_target = nil
+						spider_data.payload_item = nil
+						spider_data.payload_item_count = 0
+						spider_data.dump_target = nil
+					end
+				end
 				return
 			end
 		end
