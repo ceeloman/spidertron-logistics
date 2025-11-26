@@ -385,6 +385,22 @@ script.on_event(defines.events.on_gui_click, function(event)
 		end
 	end
 	
+	-- Handle manual dump button click
+	if element.name == 'spidertron_manual_dump_button' then
+		local vehicle = player.opened
+		if vehicle and vehicle.valid and vehicle.type == 'spider-vehicle' then
+			local spider_data = storage.spiders[vehicle.unit_number]
+			if spider_data then
+				local spider = spider_data.entity
+				if spider and spider.valid then
+					-- Trigger manual dump
+					journey.attempt_dump_items(vehicle.unit_number)
+				end
+			end
+		end
+		return
+	end
+	
 end)
 
 script.on_event(defines.events.on_entity_settings_pasted, function(event)
@@ -1319,10 +1335,53 @@ script.on_event(defines.events.on_spider_command_completed, function(event)
 				-- logging.info("Pickup", "Pickup successful: " .. spider_data.payload_item_count .. " items, setting destination to requester")
 				-- Set status to dropping_off and set destination to requester
 				spider_data.status = constants.dropping_off
-				local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
-				if not pathing_success then
-					-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
-					journey.end_journey(unit_number, true)
+				
+				-- Use pre-validated requester path if available (from dual-path validation)
+				if spider_data.requester_path_waypoints and spider_data.requester_path_target then
+					-- Apply pre-validated waypoints
+					spider.autopilot_destination = nil
+					
+					local spider_pos = spider.position
+					local min_distance = math.huge
+					local start_index = 1
+					
+					for i, wp in ipairs(spider_data.requester_path_waypoints) do
+						local pos = wp.position or wp
+						local dist = math.sqrt((pos.x - spider_pos.x)^2 + (pos.y - spider_pos.y)^2)
+						if dist < min_distance then
+							min_distance = dist
+							start_index = i
+						end
+					end
+					
+					local last_pos = spider_pos
+					local min_spacing = (spider.prototype.height + 0.5) * 7.5
+					
+					for i = start_index + 1, #spider_data.requester_path_waypoints do
+						local wp = spider_data.requester_path_waypoints[i].position or spider_data.requester_path_waypoints[i]
+						local dist = math.sqrt((wp.x - last_pos.x)^2 + (wp.y - last_pos.y)^2)
+						
+						if dist > min_spacing then
+							spider.add_autopilot_destination(wp)
+							last_pos = wp
+						end
+					end
+					
+					local waypoint_count = #spider_data.requester_path_waypoints
+					spider.add_autopilot_destination(spider_data.requester_path_target)
+					
+					-- Clean up stored path data
+					spider_data.requester_path_waypoints = nil
+					spider_data.requester_path_target = nil
+					
+					logging.info("Pickup", "Applied pre-validated requester path (" .. waypoint_count .. " waypoints)")
+				else
+					-- No pre-validated path (shouldn't happen with dual-path validation, but fallback)
+					local pathing_success = pathing.set_smart_destination(spider, spider_data.requester_target.position, spider_data.requester_target)
+					if not pathing_success then
+						-- logging.warn("Pickup", "Pathfinding to requester failed after pickup, cancelling journey")
+						journey.end_journey(unit_number, true)
+					end
 				end
 			end
 		else

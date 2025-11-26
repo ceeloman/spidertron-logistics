@@ -146,11 +146,17 @@ function gui.add_spidertron_toggle_button(player, spider)
 	frame.style.top_margin = 5
 	frame.style.left_margin = 5
 	
+	-- Create a vertical flow to hold toggle and button
+	local content_flow = frame.add{
+		type = "flow",
+		direction = "vertical"
+	}
+	
 	-- Create the toggle switch inside the frame
 	local spider_data = storage.spiders[spider.unit_number]
 	local is_active = spider_data and spider_data.active ~= false
 	
-	local toggle = frame.add{
+	local toggle = content_flow.add{
 		type = "switch",
 		name = "spidertron_logistics_toggle_button",
 		switch_state = is_active and "left" or "right",
@@ -158,6 +164,16 @@ function gui.add_spidertron_toggle_button(player, spider)
 		right_label_caption = {'gui.spidertron-inactive'},
 		tooltip = {'gui.spidertron-logistics-toggle'}
 	}
+	
+	-- Add manual dump sprite button below the toggle
+	local dump_button = content_flow.add{
+		type = "sprite-button",
+		name = "spidertron_manual_dump_button",
+		sprite = "utility.trash",
+		tooltip = "Dump unrequested items"
+	}
+	dump_button.style.top_margin = 4
+	dump_button.style.size = 40
 	
 	return toggle
 end
