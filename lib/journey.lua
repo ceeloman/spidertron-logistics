@@ -5,6 +5,7 @@ local beacon_assignment = require('lib.beacon_assignment')
 local pathing = require('lib.pathing')
 local utils = require('lib.utils')
 local logging = require('lib.logging')
+local logistics = require('lib.logistics')
 
 local journey = {}
 
@@ -34,7 +35,6 @@ function journey.advance_route(unit_number)
 	
 	-- Check if route is complete
 	if current_index > #route then
-		-- logging.info("Journey", "Route complete for spider " .. unit_number)
 		-- Clear route and end journey
 		spider_data.route = nil
 		spider_data.route_type = nil
@@ -46,7 +46,6 @@ function journey.advance_route(unit_number)
 	-- Get next stop
 	local next_stop = route[current_index]
 	if not next_stop or not next_stop.entity or not next_stop.entity.valid then
-		-- logging.warn("Journey", "Next stop in route is invalid, ending route")
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
@@ -72,7 +71,6 @@ function journey.advance_route(unit_number)
 	-- Set destination to next stop
 	local pathing_success = pathing.set_smart_destination(spider, next_stop.entity.position, next_stop.entity)
 	if not pathing_success then
-		-- logging.warn("Journey", "Pathfinding to next route stop failed, ending route")
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
@@ -80,18 +78,191 @@ function journey.advance_route(unit_number)
 		return false
 	end
 	
-	-- logging.info("Journey", "Spider " .. unit_number .. " advancing to route stop " .. current_index .. "/" .. #route .. " (" .. next_stop.type .. ")")
 	return true
 end
 
-function journey.end_journey(unit_number, find_beacon)
+-- Save current task state for resumption
+function journey.save_task_state(unit_number)
+	local spider_data = storage.spiders[unit_number]
+	if not spider_data then return false end
+	if spider_data.status == constants.idle then return false end
+	
+	-- Only save if we have an active task (not dumping)
+	if spider_data.status == constants.dumping_items then
+		return false
+	end
+	
+	-- Save route with unit numbers instead of entity references
+	local saved_route = nil
+	if spider_data.route then
+		saved_route = {}
+		for i, stop in ipairs(spider_data.route) do
+			saved_route[i] = {
+				type = stop.type,
+				entity_unit_number = stop.entity and stop.entity.unit_number or nil,
+				position = stop.position,  -- Save position as fallback
+				item = stop.item,
+				amount = stop.amount,
+				index = stop.index,
+				completed = stop.completed
+			}
+		end
+	end
+	
+	-- Save task state
+	spider_data.saved_task = {
+		status = spider_data.status,
+		provider_target_unit_number = spider_data.provider_target and spider_data.provider_target.unit_number or nil,
+		requester_target_unit_number = spider_data.requester_target and spider_data.requester_target.unit_number or nil,
+		payload_item = spider_data.payload_item,
+		payload_item_count = spider_data.payload_item_count,
+		route = saved_route,  -- Save route with unit numbers
+		route_type = spider_data.route_type,
+		current_route_index = spider_data.current_route_index,
+		additional_items = spider_data.additional_items  -- Save additional items for multi-item deliveries
+	}
+	
+	return true
+end
+
+-- Resume a saved task
+function journey.resume_task(unit_number)
+	local spider_data = storage.spiders[unit_number]
+	if not spider_data then return false end
+	if not spider_data.saved_task then return false end
+	if spider_data.status ~= constants.idle then return false end
+	
+	local spider = spider_data.entity
+	if not spider or not spider.valid then
+		spider_data.saved_task = nil
+		return false
+	end
+	
+	local saved = spider_data.saved_task
+	
+	-- Restore entity references from unit numbers
+	local provider = nil
+	if saved.provider_target_unit_number then
+		provider = spider.surface.find_entity_by_unit_number(saved.provider_target_unit_number)
+		if not provider or not provider.valid then
+			spider_data.saved_task = nil
+			return false
+		end
+	end
+	
+	local requester = nil
+	if saved.requester_target_unit_number then
+		requester = spider.surface.find_entity_by_unit_number(saved.requester_target_unit_number)
+		if not requester or not requester.valid then
+			spider_data.saved_task = nil
+			return false
+		end
+	end
+	
+	-- Restore route entities from unit numbers
+	local restored_route = nil
+	if saved.route then
+		restored_route = {}
+		for i, stop_data in ipairs(saved.route) do
+			local entity = nil
+			if stop_data.entity_unit_number then
+				entity = spider.surface.find_entity_by_unit_number(stop_data.entity_unit_number)
+			end
+			if entity and entity.valid then
+				restored_route[i] = {
+					type = stop_data.type,
+					entity = entity,
+					position = entity.position,
+					item = stop_data.item,
+					amount = stop_data.amount,
+					index = stop_data.index,
+					completed = stop_data.completed
+				}
+			else
+				-- Entity invalid, can't restore route
+				spider_data.saved_task = nil
+				return false
+			end
+		end
+	end
+	
+	-- Restore task state
+	spider_data.status = saved.status
+	spider_data.provider_target = provider
+	spider_data.requester_target = requester
+	spider_data.payload_item = saved.payload_item
+	spider_data.payload_item_count = saved.payload_item_count
+	spider_data.route = restored_route
+	spider_data.route_type = saved.route_type
+	spider_data.current_route_index = saved.current_route_index
+	spider_data.additional_items = saved.additional_items
+	
+	-- Clear saved task
+	spider_data.saved_task = nil
+	
+	-- Restore allocations if needed
+	if saved.status == constants.picking_up and provider and saved.payload_item and saved.payload_item_count then
+		local provider_data = storage.providers[provider.unit_number]
+		if provider_data and not provider_data.is_robot_chest then
+			if not provider_data.allocated_items then
+				provider_data.allocated_items = {}
+			end
+			provider_data.allocated_items[saved.payload_item] = (provider_data.allocated_items[saved.payload_item] or 0) + saved.payload_item_count
+		end
+	end
+	
+	if saved.status == constants.dropping_off and requester and saved.payload_item and saved.payload_item_count then
+		local requester_data = storage.requesters[requester.unit_number]
+		if requester_data then
+			if not requester_data.incoming_items then
+				requester_data.incoming_items = {}
+			end
+			requester_data.incoming_items[saved.payload_item] = (requester_data.incoming_items[saved.payload_item] or 0) + saved.payload_item_count
+		end
+	end
+	
+	-- Resume pathfinding
+	local target = nil
+	if saved.status == constants.picking_up and provider then
+		target = provider
+	elseif saved.status == constants.dropping_off and requester then
+		target = requester
+	elseif saved.route and saved.current_route_index then
+		-- Resume route from current index
+		local next_stop = saved.route[saved.current_route_index]
+		if next_stop and next_stop.entity and next_stop.entity.valid then
+			target = next_stop.entity
+		end
+	end
+	
+	if target then
+		local pathing_success = pathing.set_smart_destination(spider, target.position, target)
+		if not pathing_success then
+			-- Pathfinding failed, clear task
+			journey.end_journey(unit_number, true)
+			return false
+		end
+		return true
+	end
+	
+	-- No valid target, clear task
+	journey.end_journey(unit_number, true)
+	return false
+end
+
+function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	local spider_data = storage.spiders[unit_number]
 	if not spider_data then return end
 	if spider_data.status == constants.idle then return end
 	local spider = spider_data.entity
 	
-	-- If spider has a route, clear it
-	if spider_data.route then
+	-- Save task state if requested (for resumption after interruption)
+	if save_for_resume then
+		journey.save_task_state(unit_number)
+	end
+	
+	-- If spider has a route, clear it (unless we're saving for resume)
+	if spider_data.route and not save_for_resume then
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
@@ -102,76 +273,63 @@ function journey.end_journey(unit_number, find_beacon)
 	
 	local beacon_starting_point = spider
 	
+	-- Only clear allocations if not saving for resume
+	if not save_for_resume then
+		local requester = spider_data.requester_target
+		if requester and requester.valid then
+			local requester_data = storage.requesters[requester.unit_number]
+			if requester_data and item then
+				if not requester_data.incoming_items then
+					requester_data.incoming_items = {}
+				end
+				requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
+				if requester_data.incoming_items[item] <= 0 then
+					requester_data.incoming_items[item] = nil
+				end
+			end
+		end
+		
+		if spider_data.status == constants.picking_up then
+			local provider = spider_data.provider_target
+			if provider and provider.valid then
+				local provider_data = storage.providers[provider.unit_number]
+				if provider_data and provider_data.allocated_items and item then
+					local allocated_items = provider_data.allocated_items
+					allocated_items[item] = (allocated_items[item] or 0) - item_count
+					if allocated_items[item] <= 0 then allocated_items[item] = nil end
+				end
+			end
+		end
+	end
+	
+	-- Determine beacon starting point for pathfinding
+	local beacon_starting_point = spider
 	local requester = spider_data.requester_target
 	if requester and requester.valid then
 		beacon_starting_point = requester
-		
-		local requester_data = storage.requesters[requester.unit_number]
-		if requester_data and item then
-			if not requester_data.incoming_items then
-				requester_data.incoming_items = {}
-			end
-			requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
-			if requester_data.incoming_items[item] <= 0 then
-				requester_data.incoming_items[item] = nil
-			end
-		end
 	end
 	
 	if spider_data.status == constants.picking_up then
 		local provider = spider_data.provider_target
 		if provider and provider.valid then
 			beacon_starting_point = provider
-			
-			local provider_data = storage.providers[provider.unit_number]
-			if provider_data and provider_data.allocated_items and item then
-				local allocated_items = provider_data.allocated_items
-				allocated_items[item] = (allocated_items[item] or 0) - item_count
-				if allocated_items[item] <= 0 then allocated_items[item] = nil end
-			end
 		end
 	end
-	local spider_data = storage.spiders[unit_number]
-	if not spider_data then return end
-	if spider_data.status == constants.idle then return end
-	local spider = spider_data.entity
-	
-	local item = spider_data.payload_item
-	local item_count = spider_data.payload_item_count
 	
 	local beacon_starting_point = spider
-	
 	local requester = spider_data.requester_target
 	if requester and requester.valid then
 		beacon_starting_point = requester
-		
-		local requester_data = storage.requesters[requester.unit_number]
-		if requester_data and item then
-			if not requester_data.incoming_items then
-				requester_data.incoming_items = {}
-			end
-			requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
-			if requester_data.incoming_items[item] <= 0 then
-				requester_data.incoming_items[item] = nil
-			end
-		end
 	end
 	
 	if spider_data.status == constants.picking_up then
 		local provider = spider_data.provider_target
 		if provider and provider.valid then
 			beacon_starting_point = provider
-			
-			local provider_data = storage.providers[provider.unit_number]
-			if provider_data and provider_data.allocated_items and item then
-				local allocated_items = provider_data.allocated_items
-				allocated_items[item] = (allocated_items[item] or 0) - item_count
-				if allocated_items[item] <= 0 then allocated_items[item] = nil end
-			end
 		end
 	end
 	
-	if find_beacon and spider.valid and spider.get_driver() == nil then
+	if find_beacon and spider.valid then
 		-- Try to find beacon with highest pickup count (most activity) within reasonable distance
 		-- This helps distribute spiders to the most active beacons
 		local active_beacon = beacon_assignment.find_beacon_with_highest_pickup_count(
@@ -198,10 +356,13 @@ function journey.end_journey(unit_number, find_beacon)
 		end
 	end
 	
-	spider_data.provider_target = nil
-	spider_data.requester_target = nil
-	spider_data.payload_item = nil
-	spider_data.payload_item_count = 0
+	-- Only clear targets if not saving for resume
+	if not save_for_resume then
+		spider_data.provider_target = nil
+		spider_data.requester_target = nil
+		spider_data.payload_item = nil
+		spider_data.payload_item_count = 0
+	end
 	
 	-- Check if spider still has items in inventory after failed delivery
 	if spider.valid then
@@ -253,10 +414,12 @@ function journey.end_journey(unit_number, find_beacon)
 		end
 	end
 	
+	-- Set to idle (needed for resumption check)
 	spider_data.status = constants.idle
 	-- Clear retry counters
 	spider_data.pickup_retry_count = nil
 	spider_data.dropoff_retry_count = nil
+	-- Note: saved_task is preserved if save_for_resume was true, allowing resumption
 end
 
 function journey.deposit_already_had(spider_data)
@@ -284,18 +447,36 @@ function journey.deposit_already_had(spider_data)
 		if not requester_data.requested_items then
 			requester_data.requested_items = {}
 			if requester_data.requested_item then
-				requester_data.requested_items[requester_data.requested_item] = requester_data.request_size or 0
+				-- Migrate to new format
+				local old_count = requester_data.request_size or 0
+				requester_data.requested_items[requester_data.requested_item] = {
+					count = old_count,
+					buffer_threshold = 0.8
+				}
 			end
 		end
 		
 		-- Check all requested items
-		for item, request_size in pairs(requester_data.requested_items) do
-			if item and item ~= '' and request_size > 0 and contains[item] and requester.can_insert(item) then
-				local incoming = requester_data.incoming_items[item] or 0
-				local already_had = requester.get_item_count(item)
-				if already_had + incoming < request_size then
+		for item_name, item_data in pairs(requester_data.requested_items) do
+			-- Handle migration from old format (number) to new format (table)
+			local requested_count
+			if type(item_data) == "number" then
+				-- Old format: migrate to new format
+				requested_count = item_data
+				requester_data.requested_items[item_name] = {
+					count = requested_count,
+					buffer_threshold = 0.8
+				}
+			else
+				-- New format: extract count
+				requested_count = item_data.count or 0
+			end
+			
+			if item_name and item_name ~= '' and requested_count > 0 and contains[item_name] and requester.can_insert(item_name) then
+				-- Use should_request_item to check if item should be requested
+				if logistics.should_request_item(requester_data, item_name) then
 					requesters[i] = requester
-					requester_items[requester.unit_number] = item
+					requester_items[requester.unit_number] = item_name
 					i = i + 1
 					goto found_item
 				end
@@ -316,8 +497,24 @@ function journey.deposit_already_had(spider_data)
 		requester_data.incoming_items = {}
 	end
 	local incoming = requester_data.incoming_items[item] or 0
-	local request_size = requester_data.requested_items[item] or 0
-	local already_had = request_size - requester.get_item_count(item) - incoming
+	
+	-- Handle new format for requested_items
+	local item_data = requester_data.requested_items[item]
+	local requested_count
+	if type(item_data) == "number" then
+		-- Old format: migrate to new format
+		requested_count = item_data
+		requester_data.requested_items[item] = {
+			count = requested_count,
+			buffer_threshold = 0.2
+		}
+	else
+		-- New format: extract count
+		requested_count = item_data and item_data.count or 0
+	end
+	
+	local current_amount = requester.get_item_count(item)
+	local already_had = requested_count - current_amount - incoming
 	local can_provide = spider.get_item_count(item)
 	if can_provide > already_had then can_provide = already_had end
 	
@@ -433,6 +630,12 @@ function journey.attempt_dump_items(unit_number)
 		to_be_deconstructed = false
 	}
 	
+	-- Check if any storage chests exist at all
+	if not storage_chests or #storage_chests == 0 then
+		-- No storage chests available - print message and return without setting dumping_items status
+		return false
+	end
+	
 	-- Get logistic requests once
 	local logistic_requests = utils.get_spider_logistic_requests(spider)
 	
@@ -539,8 +742,7 @@ function journey.attempt_dump_items(unit_number)
 		end
 		return true
 	else
-		spider_data.status = constants.dumping_items
-		spider_data.dump_target = nil
+		-- No suitable storage chest found (all are full or filtered) - print message and return without setting dumping_items status
 		return false
 	end
 end

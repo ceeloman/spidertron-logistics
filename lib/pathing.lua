@@ -6,6 +6,20 @@ local constants = require('lib.constants')
 local logging = require('lib.logging')
 local rendering = require('lib.rendering')
 
+-- Initialize pathfinding cache if needed
+if not storage.pathfinding_cache then
+	storage.pathfinding_cache = {}
+end
+
+-- Generate cache key from start and end positions (rounded to nearest 5 tiles for cache efficiency)
+local function get_pathfinding_cache_key(start_pos, end_pos)
+	local start_x = math.floor(start_pos.x / 5) * 5
+	local start_y = math.floor(start_pos.y / 5) * 5
+	local end_x = math.floor(end_pos.x / 5) * 5
+	local end_y = math.floor(end_pos.y / 5) * 5
+	return string.format("%.0f,%.0f->%.0f,%.0f", start_x, start_y, end_x, end_y)
+end
+
 local pathing = {}
 
 -- Check if spider can traverse water/lava
@@ -21,37 +35,32 @@ function pathing.can_spider_traverse_water(spider)
 	
 	if not success or not legs or #legs == 0 then
 		-- No legs = can traverse water (hovering/legless spider)
-		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " (" .. spider.name .. ") has no legs, CAN traverse water")
 		return true
 	end
 	
 	-- Get the first leg's collision mask (all legs should have the same collision mask)
 	local first_leg = legs[1]
 	if not first_leg or not first_leg.valid then
-		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " first leg is invalid")
 		return false
 	end
 	
 	local leg_prototype = first_leg.prototype
 	if not leg_prototype then
-		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no prototype")
 		return false
 	end
 	
 	-- Get the leg's collision mask
 	local leg_collision_mask = leg_prototype.collision_mask
 	if not leg_collision_mask or not leg_collision_mask.layers then
-		-- logging.warn("Pathing", "Spider " .. spider.unit_number .. " leg has no collision_mask.layers")
 		return false
 	end
 	
-	-- Check if legs collide with "player" layer (water tiles have "player" in their collision mask)
-	-- If legs have "player" in collision mask, they will collide with water = cannot traverse
-	if leg_collision_mask.layers["player"] then
-		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " legs have 'player' in collision mask, CANNOT traverse water")
+	-- Check if legs collide with "player", "water_tile", or "lava_tile" layers
+	-- Water/lava tiles have "player" in their collision mask (base game) or "water_tile"/"lava_tile" (modded)
+	-- If legs have any of these in collision mask, they will collide with water/lava = cannot traverse
+	if leg_collision_mask.layers["player"] or leg_collision_mask.layers["water_tile"] or leg_collision_mask.layers["lava_tile"] then
 		return false
 	else
-		-- logging.info("Pathing", "Spider " .. spider.unit_number .. " legs do NOT have 'player' in collision mask, CAN traverse water")
 		return true
 	end
 end
@@ -75,14 +84,123 @@ local function can_spider_cross_cliffs(spider)
 	return size >= 2.0
 end
 
+-- Get leg size/reach from leg prototype
+-- Uses collision box to estimate leg reach distance
+local function get_leg_size(spider)
+	if not spider or not spider.valid then return 0 end
+	
+	local success, legs = pcall(function()
+		return spider.get_spider_legs()
+	end)
+	
+	if not success or not legs or #legs == 0 then
+		return 0  -- No legs
+	end
+	
+	local first_leg = legs[1]
+	if not first_leg or not first_leg.valid then
+		return 0
+	end
+	
+	local leg_prototype = first_leg.prototype
+	if not leg_prototype then
+		return 0
+	end
+	
+	-- Try to get leg reach distance if available (Factorio 2.0+)
+	if leg_prototype.reach_distance then
+		return leg_prototype.reach_distance
+	end
+	
+	-- Fallback: estimate from collision box
+	if leg_prototype.collision_box then
+		local box = leg_prototype.collision_box
+		local width = box.right_bottom.x - box.left_top.x
+		local height = box.right_bottom.y - box.left_top.y
+		-- Leg reach is typically much larger than collision box
+		-- Estimate: collision box size * 10 (rough approximation)
+		return math.max(width, height) * 10
+	end
+	
+	-- Default fallback
+	return 15.0
+end
+
 -- Get the maximum water gap width that a spider can step over
--- Base game spidertrons can step over gaps up to 15 tiles wide
+-- Now based on leg size/reach
 local function get_spider_water_gap_tolerance(spider)
 	if not spider or not spider.valid then return 15.0 end
 	
-	-- Base game spidertrons can step over water gaps up to 15 tiles
-	-- This is based on their leg reach distance
+	local leg_size = get_leg_size(spider)
+	if leg_size > 0 then
+		return leg_size
+	end
+	
+	-- Fallback to default
 	return 15.0
+end
+
+-- Get minimum distance to keep from buildings based on leg size
+-- Minimum 0.5 tiles, plus leg size for safety
+local function get_building_avoidance_distance(spider)
+	if not spider or not spider.valid then return 0.5 end
+	
+	local leg_size = get_leg_size(spider)
+	-- Minimum 0.5 tiles, plus half leg size for clearance
+	return 0.5 + (leg_size / 2)
+end
+
+-- Calculate distance from a point to the edge of a collision box
+-- Returns the distance from point to nearest edge of the collision box
+local function distance_to_collision_box_edge(point, building)
+	if not building or not building.valid then
+		return math.huge
+	end
+	
+	local prototype = building.prototype
+	if not prototype or not prototype.collision_box then
+		return math.huge
+	end
+	
+	local box = prototype.collision_box
+	local building_pos = building.position
+	
+	-- Transform collision box to world coordinates
+	-- Collision box is relative to entity position
+	local box_left = building_pos.x + box.left_top.x
+	local box_right = building_pos.x + box.right_bottom.x
+	local box_top = building_pos.y + box.left_top.y
+	local box_bottom = building_pos.y + box.right_bottom.y
+	
+	-- Calculate distance to nearest edge
+	-- If point is inside box, distance is to nearest edge
+	-- If point is outside box, distance is to nearest corner or edge
+	local dx = 0
+	local dy = 0
+	
+	if point.x < box_left then
+		dx = box_left - point.x
+	elseif point.x > box_right then
+		dx = point.x - box_right
+	end
+	
+	if point.y < box_top then
+		dy = box_top - point.y
+	elseif point.y > box_bottom then
+		dy = point.y - box_bottom
+	end
+	
+	-- Distance to nearest edge (or corner if outside)
+	return math.sqrt(dx^2 + dy^2)
+end
+
+-- Check if spider can cross an object based on leg size
+local function can_spider_cross_object(spider, object_size)
+	if not spider or not spider.valid then return false end
+	
+	local leg_size = get_leg_size(spider)
+	-- Can cross if leg reach is at least 1.5x the object size
+	return leg_size >= (object_size * 1.5)
 end
 
 -- Get collision mask for pathfinding based on spider capabilities
@@ -129,15 +247,12 @@ local function get_path_collision_mask(spider, relaxed)
 	-- We'll filter waypoints afterward to ensure paths don't cross too much water
 	-- This allows the pathfinder to find paths over land bridges and small water gaps
 	if not can_water then
-		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot traverse water, will filter waypoints after pathfinding")
 	else
-		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " can traverse water")
 	end
 	
 	-- If spider can't cross cliffs, ensure cliff is in collision mask
 	if not can_cliffs then
 		base_collision_mask["cliff"] = true
-		-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " cannot cross cliffs, adding cliff to collision mask")
 	end
 	
 	-- Keep as dictionary format for request_path (API requires dictionary, not array)
@@ -146,13 +261,26 @@ local function get_path_collision_mask(spider, relaxed)
 	for layer_name, _ in pairs(base_collision_mask) do
 		table.insert(layer_names, layer_name)
 	end
-	-- logging.debug("Pathing", "Spider " .. spider.unit_number .. " collision mask layers: " .. table.concat(layer_names, ", "))
 	
 	return {
 		layers = base_collision_mask,  -- Keep as dictionary, not array
 		colliding_with_tiles_only = true,
 		consider_tile_transitions = true
 	}
+end
+
+-- Initialize pathfinding cache if needed
+if not storage.pathfinding_cache then
+	storage.pathfinding_cache = {}
+end
+
+-- Generate cache key from start and end positions (rounded to nearest 5 tiles for cache efficiency)
+local function get_pathfinding_cache_key(start_pos, end_pos)
+	local start_x = math.floor(start_pos.x / 5) * 5
+	local start_y = math.floor(start_pos.y / 5) * 5
+	local end_x = math.floor(end_pos.x / 5) * 5
+	local end_y = math.floor(end_pos.y / 5) * 5
+	return string.format("%.0f,%.0f->%.0f,%.0f", start_x, start_y, end_x, end_y)
 end
 
 -- Request pathfinding and queue waypoints
@@ -167,11 +295,35 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 	local surface = spider.surface
 	local start_pos = spider.position
 	
-	-- Check if destination is too close
+	-- Check if destination is too close - skip pathfinding, use direct autopilot
 	local distance = math.sqrt((start_pos.x - destination_pos.x)^2 + (start_pos.y - destination_pos.y)^2)
 	if distance < 10 then
 		spider.add_autopilot_destination(destination_pos)
 		return true
+	end
+	
+	-- Check pathfinding cache (initialize if needed)
+	if not storage.pathfinding_cache then
+		storage.pathfinding_cache = {}
+	end
+	local cache_key = get_pathfinding_cache_key(start_pos, destination_pos)
+	local cached_path = storage.pathfinding_cache[cache_key]
+	local current_tick = game.tick
+	
+	if cached_path and cached_path.waypoints and cached_path.cache_tick then
+		local cache_age = current_tick - cached_path.cache_tick
+		if cache_age < constants.pathfinding_cache_ttl then
+			-- Use cached path
+			spider.autopilot_destination = nil
+			for _, wp in ipairs(cached_path.waypoints) do
+				spider.add_autopilot_destination(wp)
+			end
+			spider.add_autopilot_destination(destination_pos)
+			return true
+		else
+			-- Cache expired, remove it
+			storage.pathfinding_cache[cache_key] = nil
+		end
 	end
 	
 	-- Get spider legs
@@ -207,8 +359,8 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 	
 	local leg_collision_mask = leg_prototype.collision_mask
 	
-	-- Check if spider can traverse water (legs have "player" layer = can't traverse)
-	local can_traverse_water = not (leg_collision_mask.layers and leg_collision_mask.layers["player"])
+	-- Check if spider can traverse water/lava (legs have "player", "water_tile", or "lava_tile" layer = can't traverse)
+	local can_traverse_water = not (leg_collision_mask.layers and (leg_collision_mask.layers["player"] or leg_collision_mask.layers["water_tile"] or leg_collision_mask.layers["lava_tile"]))
 	
 	-- Build path collision mask
 	-- CRITICAL: We keep the player layer IN the collision mask for pathfinding
@@ -226,43 +378,77 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 		end
 	end
 	
-	logging.info("Pathing", "Spider " .. spider.unit_number .. " can_traverse_water=" .. tostring(can_traverse_water))
+	-- Build detailed log message about spider water traversal capability
+	local leg_name = first_leg.name or "unknown"
+	local leg_collision_layers = {}
+	if leg_collision_mask.layers then
+		for layer_name, _ in pairs(leg_collision_mask.layers) do
+			table.insert(leg_collision_layers, layer_name)
+		end
+	end
+	local leg_collision_layers_str = table.concat(leg_collision_layers, ", ")
+	if leg_collision_layers_str == "" then
+		leg_collision_layers_str = "none"
+	end
 	
-	-- Request paths from multiple leg positions
+	--              " | Leg: " .. leg_name .. 
+	--              " | Leg collision mask layers: [" .. leg_collision_layers_str .. "]")
+	
+	-- Request paths from multiple leg positions (limit to 2 requests max for UPS efficiency)
+	-- Use first and middle leg instead of all odd legs to reduce pathfinding load
 	local request_ids = {}
-	for i, leg in pairs(legs) do
-		if i % 2 == 1 then
-			local request_id = surface.request_path{
-				start = leg.position,
-				goal = target_position,
-				force = spider.force,
-				bounding_box = {{-0.01, -0.01}, {0.01, 0.01}},
-				collision_mask = path_collision_mask,
-				radius = 20,
-				path_resolution_modifier = -3,
-				pathfind_flags = {
-					cache = false,
-					prefer_straight_paths = false,
-					low_priority = false
-				}
+	local leg_count = #legs
+	local legs_to_use = {}
+	
+	-- Always use first leg
+	if leg_count > 0 then
+		table.insert(legs_to_use, legs[1])
+	end
+	
+	-- Use middle leg if available (better coverage than just first)
+	if leg_count > 2 then
+		local middle_index = math.floor(leg_count / 2)
+		if middle_index % 2 == 0 then
+			middle_index = middle_index + 1  -- Prefer odd index
+		end
+		if middle_index <= leg_count and middle_index ~= 1 then
+			table.insert(legs_to_use, legs[middle_index])
+		end
+	end
+	
+	-- Limit to 2 requests max to reduce pathfinding overhead
+	for i = 1, math.min(2, #legs_to_use) do
+		local leg = legs_to_use[i]
+		local request_id = surface.request_path{
+			start = leg.position,
+			goal = target_position,
+			force = spider.force,
+			bounding_box = {{-0.01, -0.01}, {0.01, 0.01}},
+			collision_mask = path_collision_mask,
+			radius = 20,
+			path_resolution_modifier = -3,
+			pathfind_flags = {
+				cache = false,
+				prefer_straight_paths = false,
+				low_priority = false
 			}
+		}
 			
-			if request_id then
-				table.insert(request_ids, request_id)
-				
-				storage.path_requests = storage.path_requests or {}
-				storage.path_requests[request_id] = {
-					spider_unit_number = spider.unit_number,
-					surface_index = surface.index,
-					start_position = leg.position,
-					destination_pos = target_position,
-					destination_entity = destination_entity,
-					start_tick = game.tick,
-					leg_index = i,
-					collision_mask = path_collision_mask,
-					can_traverse_water = can_traverse_water
-				}
-			end
+		if request_id then
+			table.insert(request_ids, request_id)
+			
+			storage.path_requests = storage.path_requests or {}
+			storage.path_requests[request_id] = {
+				spider_unit_number = spider.unit_number,
+				surface_index = surface.index,
+				start_position = leg.position,
+				destination_pos = target_position,
+				destination_entity = destination_entity,
+				start_tick = game.tick,
+				leg_index = i,
+				collision_mask = path_collision_mask,
+				can_traverse_water = can_traverse_water
+			}
 		end
 	end
 	
@@ -281,7 +467,6 @@ function pathing.set_smart_destination(spider, destination_pos, destination_enti
 		destination_pos = target_position
 	}
 	
-	logging.info("Pathing", "Requested " .. total_requests .. " paths for spider " .. spider.unit_number)
 	
 	return true
 end
@@ -575,9 +760,7 @@ local function detect_water_crossings(surface, waypoints, start_pos, spider, can
 							water_end_idx = i - 1,
 							gap_distance = gap_distance
 						})
-						logging.info("Pathing", "Detected land bridge crossing: gap=" .. string.format("%.2f", gap_distance) .. " tiles (tolerance=" .. string.format("%.2f", gap_tolerance) .. ")")
 					else
-						logging.warn("Pathing", "Water gap too wide: " .. string.format("%.2f", gap_distance) .. " tiles (tolerance=" .. string.format("%.2f", gap_tolerance) .. ")")
 					end
 				end
 				
@@ -661,7 +844,6 @@ local function line_segment_crosses_water(surface, start_pos, end_pos, can_water
 	-- Each step represents (distance / steps) tiles, so consecutive water steps = (consecutive / steps) * distance
 	local water_gap_width = (max_consecutive_water / steps) * distance
 	
-	logging.info("Pathing", "  Water gap check: consecutive=" .. max_consecutive_water .. ", steps=" .. steps .. ", distance=" .. string.format("%.2f", distance) .. ", gap_width=" .. string.format("%.2f", water_gap_width) .. ", tolerance=" .. string.format("%.2f", gap_tolerance))
 	
 	-- If gap is small enough, allow crossing (land bridge scenario)
 	-- Also allow if there's no water at all (max_consecutive_water == 0)
@@ -669,12 +851,10 @@ local function line_segment_crosses_water(surface, start_pos, end_pos, can_water
 		-- No water detected - path is safe
 		return false  -- Don't block
 	elseif water_gap_width <= gap_tolerance then
-		logging.info("Pathing", "  Allowing path (gap " .. string.format("%.2f", water_gap_width) .. " <= tolerance " .. string.format("%.2f", gap_tolerance) .. ")")
 		return false  -- Can step over, don't block
 	end
 	
 	-- If there's any water that's too wide, block the path
-	logging.warn("Pathing", "  Blocking path (gap " .. string.format("%.2f", water_gap_width) .. " > tolerance " .. string.format("%.2f", gap_tolerance) .. ")")
 	return true  -- Blocks path
 end
 
@@ -701,7 +881,6 @@ local function smooth_waypoints(waypoints, start_pos, surface, can_water, spider
 		
 		-- Check if this waypoint is locked (detour point) - if so, don't smooth it
 		if curr_pos.locked then
-			-- logging.debug("Pathing", "  Skipping smoothing for locked waypoint at (" .. string.format("%.1f", curr_pos.x) .. "," .. string.format("%.1f", curr_pos.y) .. ")")
 			table.insert(smoothed, curr_pos)
 			goto continue
 		end
@@ -866,23 +1045,18 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 	if left_safe and right_safe then
 		-- Both are safe, choose shorter one
 		if left_dist <= right_dist then
-			-- logging.info("Pathing", "  Detour: LEFT side chosen (both safe, dist=" .. string.format("%.1f", left_dist) .. " vs " .. string.format("%.1f", right_dist) .. ")")
 			return left_detour
 		else
-			-- logging.info("Pathing", "  Detour: RIGHT side chosen (both safe, dist=" .. string.format("%.1f", right_dist) .. " vs " .. string.format("%.1f", left_dist) .. ")")
 			return right_detour
 		end
 	elseif left_safe then
 		-- Only left is safe
-		-- logging.info("Pathing", "  Detour: LEFT side chosen (right unsafe: " .. right_reason .. ")")
 		return left_detour
 	elseif right_safe then
 		-- Only right is safe
-		-- logging.info("Pathing", "  Detour: RIGHT side chosen (left unsafe: " .. left_reason .. ")")
 		return right_detour
 	else
 		-- Both are unsafe - try to find a safe alternative by searching nearby
-		-- logging.warn("Pathing", "  Both detour options unsafe (left: " .. left_reason .. ", right: " .. right_reason .. "), searching for safe alternative")
 		
 		-- Try searching in a spiral pattern around the nest for a safe detour point
 		local search_radius = DETOUR_DISTANCE
@@ -903,7 +1077,6 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 					
 					local test_safe, _ = is_detour_safe(test_detour)
 					if test_safe then
-						-- logging.info("Pathing", "  Found safe alternative detour at radius " .. string.format("%.1f", radius) .. ", angle " .. string.format("%.1f", angle_offset * 180 / math.pi) .. "°")
 						return test_detour
 					end
 				end
@@ -920,14 +1093,12 @@ local function calculate_nest_detour(surface, nest_pos, prev_waypoint, next_wayp
 			local land_detour = {x = safe_land_point.x, y = safe_land_point.y, locked = true}
 			local land_safe, _ = is_detour_safe(land_detour)
 			if land_safe then
-				-- logging.warn("Pathing", "  Using closest safe land point as detour (fallback)")
 				return land_detour
 			end
 		end
 		
 		-- Last resort: return the shorter unsafe detour (better than no detour)
 		-- The pathfinder will handle it, or it will be caught later
-		-- logging.warn("Pathing", "  No safe detour found, using shorter unsafe option (left: " .. left_reason .. ")")
 		return (left_dist <= right_dist) and left_detour or right_detour
 	end
 end
@@ -958,7 +1129,6 @@ local function insert_nest_detours(surface, waypoints, spider, can_water)
 				violations_found = true
 				local nest = nearby_nests[1]  -- Use closest nest
 				
-				-- logging.warn("Pathing", "  Iteration " .. iteration .. ": Waypoint " .. i .. " (" .. string.format("%.1f", curr_wp.x) .. "," .. string.format("%.1f", curr_wp.y) .. ") within " .. NEST_AVOIDANCE_DISTANCE .. " tiles of nest at (" .. string.format("%.1f", nest.position.x) .. "," .. string.format("%.1f", nest.position.y) .. ")")
 				
 				-- Find the previous safe waypoint
 				local prev_wp = new_waypoints[#new_waypoints] or {x = curr_wp.x - 10, y = curr_wp.y - 10}
@@ -992,30 +1162,24 @@ local function insert_nest_detours(surface, waypoints, spider, can_water)
 						-- Check if detour point is on water
 						if terrain.is_position_directly_on_water(surface, detour_point) then
 							is_safe = false
-							logging.warn("Pathing", "  Detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ") is on water - rejecting")
 						else
 							-- Check if path segments are safe
 							if line_segment_crosses_water(surface, prev_wp, detour_point, can_water, spider) then
 								is_safe = false
-								logging.warn("Pathing", "  Path from prev to detour crosses water - rejecting")
 							elseif line_segment_crosses_water(surface, detour_point, next_wp, can_water, spider) then
 								is_safe = false
-								logging.warn("Pathing", "  Path from detour to next crosses water - rejecting")
 							end
 						end
 					end
 					
 					if is_safe then
-						-- logging.info("Pathing", "  Inserting detour point at (" .. string.format("%.1f", detour_point.x) .. "," .. string.format("%.1f", detour_point.y) .. ")")
 						table.insert(new_waypoints, detour_point)
 					else
 						-- Detour is unsafe, skip it and keep original waypoint
 						-- This might cause the spider to get closer to the nest, but it's better than pathing into water
-						logging.warn("Pathing", "  Detour point failed safety validation, keeping original waypoint")
 						table.insert(new_waypoints, curr_wp)
 					end
 				else
-					-- logging.warn("Pathing", "  Failed to calculate detour point, keeping original waypoint")
 					table.insert(new_waypoints, curr_wp)
 				end
 			else
@@ -1029,10 +1193,217 @@ local function insert_nest_detours(surface, waypoints, spider, can_water)
 		waypoints = new_waypoints
 		
 		if not violations_found then
-			-- logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": No violations found, done")
 			break
 		else
-			-- logging.info("Pathing", "  Nest detour iteration " .. iteration .. ": Violations found, checking again...")
+		end
+	end
+	
+	return waypoints
+end
+
+-- Calculate detour point around building
+local function calculate_building_detour(surface, building, prev_waypoint, next_waypoint, DETOUR_DISTANCE, spider)
+	-- Get building size
+	local prototype = building.prototype
+	if not prototype or not prototype.collision_box then
+		return nil
+	end
+	
+	local box = prototype.collision_box
+	local building_width = box.right_bottom.x - box.left_top.x
+	local building_height = box.right_bottom.y - box.left_top.y
+	local building_size = math.max(building_width, building_height)
+	
+	local building_pos = building.position
+	
+	-- Calculate the path direction vector (from prev to next)
+	local path_dx = next_waypoint.x - prev_waypoint.x
+	local path_dy = next_waypoint.y - prev_waypoint.y
+	local path_len = math.sqrt(path_dx^2 + path_dy^2)
+	
+	if path_len < 0.1 then
+		return nil
+	end
+	
+	-- Normalize path direction
+	path_dx = path_dx / path_len
+	path_dy = path_dy / path_len
+	
+	-- Calculate perpendicular vectors (left and right of path)
+	local left_dx = -path_dy
+	local left_dy = path_dx
+	local right_dx = path_dy
+	local right_dy = -path_dx
+	
+	-- Calculate detour distance from building center
+	-- We want the detour to be DETOUR_DISTANCE away from the collision box edge
+	-- So from center, it's building_size/2 (to edge) + DETOUR_DISTANCE
+	local detour_radius = building_size/2 + DETOUR_DISTANCE
+	
+	-- Calculate detour points on left and right sides
+	local left_detour = {
+		x = building_pos.x + left_dx * detour_radius,
+		y = building_pos.y + left_dy * detour_radius,
+		locked = true
+	}
+	
+	local right_detour = {
+		x = building_pos.x + right_dx * detour_radius,
+		y = building_pos.y + right_dy * detour_radius,
+		locked = true
+	}
+	
+	-- Check if detour points are safe (not colliding with other buildings)
+	local function is_detour_safe(detour_pos)
+		-- Check if detour point collides with any large building
+		local nearby = surface.find_entities_filtered{
+			position = detour_pos,
+			radius = 3.0,
+			force = spider.force,
+			to_be_deconstructed = false
+		}
+		
+		for _, entity in ipairs(nearby) do
+			if entity ~= building and entity.type ~= "spider-vehicle" then
+				local proto = entity.prototype
+				if proto and proto.collision_box then
+					local box = proto.collision_box
+					local size = math.max(box.right_bottom.x - box.left_top.x, box.right_bottom.y - box.left_top.y)
+					if size >= 2.0 then  -- Avoid any building 2+ tiles
+						local dist = math.sqrt((entity.position.x - detour_pos.x)^2 + (entity.position.y - detour_pos.y)^2)
+						local min_dist = get_building_avoidance_distance(spider) + size/2
+						if dist < min_dist then
+							return false
+						end
+					end
+				end
+			end
+		end
+		
+		return true
+	end
+	
+	-- Choose the safer/shorter route
+	local left_safe = is_detour_safe(left_detour)
+	local right_safe = is_detour_safe(right_detour)
+	
+	local left_dist = math.sqrt((left_detour.x - prev_waypoint.x)^2 + (left_detour.y - prev_waypoint.y)^2) +
+	                  math.sqrt((next_waypoint.x - left_detour.x)^2 + (next_waypoint.y - left_detour.y)^2)
+	
+	local right_dist = math.sqrt((right_detour.x - prev_waypoint.x)^2 + (right_detour.y - prev_waypoint.y)^2) +
+	                   math.sqrt((next_waypoint.x - right_detour.x)^2 + (next_waypoint.y - right_detour.y)^2)
+	
+	if left_safe and right_safe then
+		return (left_dist <= right_dist) and left_detour or right_detour
+	elseif left_safe then
+		return left_detour
+	elseif right_safe then
+		return right_detour
+	else
+		-- Both unsafe, return shorter one anyway (better than nothing)
+		return (left_dist <= right_dist) and left_detour or right_detour
+	end
+end
+
+-- Insert detour waypoints around large buildings
+local function insert_building_detours(surface, waypoints, spider)
+	local MIN_BUILDING_SIZE = 2.0  -- Minimum collision box size to consider (2x2 tiles)
+	local MAX_ITERATIONS = 2  -- Prevent infinite loops
+	
+	-- Get building avoidance distance based on leg size
+	local BUILDING_AVOIDANCE_DISTANCE = get_building_avoidance_distance(spider)
+	
+	for iteration = 1, MAX_ITERATIONS do
+		local violations_found = false
+		local new_waypoints = {}
+		local i = 1
+		
+		while i <= #waypoints do
+			local curr_wp = waypoints[i]
+			
+			-- Find large buildings near this waypoint
+			local nearby_buildings = surface.find_entities_filtered{
+				position = curr_wp,
+				radius = BUILDING_AVOIDANCE_DISTANCE + 10,  -- Search wider area
+				force = spider.force,  -- Only avoid friendly buildings
+				to_be_deconstructed = false
+			}
+			
+			-- Filter for large buildings only
+			local large_buildings = {}
+			for _, building in ipairs(nearby_buildings) do
+				-- Skip the spider itself and its target entities
+				if building.type == "spider-vehicle" then
+					goto next_building
+				end
+				
+				local prototype = building.prototype
+				if prototype and prototype.collision_box then
+					local box = prototype.collision_box
+					local width = box.right_bottom.x - box.left_top.x
+					local height = box.right_bottom.y - box.left_top.y
+					local size = math.max(width, height)
+					
+					if size >= MIN_BUILDING_SIZE then
+						-- Calculate distance from waypoint to building's collision box edge
+						local dist_to_edge = distance_to_collision_box_edge(curr_wp, building)
+						-- Need to stay at least BUILDING_AVOIDANCE_DISTANCE away from building edge
+						if dist_to_edge < BUILDING_AVOIDANCE_DISTANCE then
+							table.insert(large_buildings, building)
+						end
+					end
+				end
+				::next_building::
+			end
+			
+			if #large_buildings > 0 then
+				-- Found a large building too close - need to insert detour
+				violations_found = true
+				local building = large_buildings[1]  -- Use closest building
+				
+				-- Find the previous safe waypoint
+				local prev_wp = new_waypoints[#new_waypoints] or {x = curr_wp.x - 10, y = curr_wp.y - 10}
+				
+				-- Find the next safe waypoint (skip ahead past building)
+				local next_wp = nil
+				for j = i + 1, #waypoints do
+					local test_wp = waypoints[j]
+					-- Calculate distance from waypoint to building's collision box edge
+					local dist_to_edge = distance_to_collision_box_edge(test_wp, building)
+					if dist_to_edge >= BUILDING_AVOIDANCE_DISTANCE then
+						next_wp = test_wp
+						i = j - 1  -- Jump to this waypoint
+						break
+					end
+				end
+				
+				if not next_wp then
+					-- No safe waypoint found after building, use last waypoint
+					next_wp = waypoints[#waypoints]
+					i = #waypoints
+				end
+				
+				-- Calculate detour point around building
+				local detour_point = calculate_building_detour(surface, building, prev_wp, next_wp, BUILDING_AVOIDANCE_DISTANCE, spider)
+				
+				if detour_point then
+					table.insert(new_waypoints, detour_point)
+				else
+					-- Failed to calculate detour, keep original waypoint
+					table.insert(new_waypoints, curr_wp)
+				end
+			else
+				-- Waypoint is safe, keep it
+				table.insert(new_waypoints, curr_wp)
+			end
+			
+			i = i + 1
+		end
+		
+		waypoints = new_waypoints
+		
+		if not violations_found then
+			break
 		end
 	end
 	
@@ -1095,11 +1466,9 @@ local function adjust_waypoints_near_water(surface, waypoints, spider, can_water
 			
 			if is_land_bridge then
 				-- This is a land bridge waypoint - keep it as-is, don't move it
-				logging.info("Pathing", "Waypoint " .. i .. " is on land bridge - keeping position (critical for path)")
 				table.insert(adjusted, {x = waypoint_pos.x, y = waypoint_pos.y, locked = true})
 			else
 				-- Not a land bridge, try to move it away from water
-				logging.info("Pathing", "Waypoint " .. i .. " at (" .. string.format("%.1f", waypoint_pos.x) .. "," .. string.format("%.1f", waypoint_pos.y) .. ") is near water, attempting to move")
 				
 				-- Try to find a nearby land position
 				local best_pos = nil
@@ -1141,12 +1510,10 @@ local function adjust_waypoints_near_water(surface, waypoints, spider, can_water
 				
 				if best_pos and best_distance_from_water >= 1.0 then
 					-- Found a safe position to move to
-					logging.info("Pathing", "  Moving waypoint " .. i .. " to (" .. string.format("%.1f", best_pos.x) .. "," .. string.format("%.1f", best_pos.y) .. ") (distance from water: " .. string.format("%.2f", best_distance_from_water) .. ")")
 					table.insert(adjusted, {x = best_pos.x, y = best_pos.y, locked = false})
 				else
 					-- Can't find a safe position - this waypoint is constrained by water
 					-- Keep it as-is and lock it (might be on a land bridge)
-					logging.warn("Pathing", "  Waypoint " .. i .. " cannot be moved (water on all sides), locking it")
 					locked_indices[i] = true
 					-- Keep original position
 					table.insert(adjusted, {x = waypoint_pos.x, y = waypoint_pos.y, locked = true})
@@ -1176,9 +1543,8 @@ local function adjust_waypoints_near_water(surface, waypoints, spider, can_water
 		end
 	end
 	
-	if moved_count > 0 or locked_count > 0 then
-		logging.info("Pathing", "Adjusted waypoints near water: " .. moved_count .. " moved, " .. locked_count .. " locked")
-	end
+	-- if moved_count > 0 or locked_count > 0 then
+	-- end
 	
 	return adjusted
 end
@@ -1241,8 +1607,7 @@ local function filter_water_waypoints(surface, waypoints, spider_pos, can_traver
 		local gap_too_wide, gap_width = check_water_gap(surface, last_pos, pos, max_gap)
 		
 		if gap_too_wide then
-			logging.warn("Pathing", "Waypoint " .. i .. " crosses water gap of " .. 
-			            string.format("%.1f", gap_width) .. " tiles (max: " .. max_gap .. ") - FILTERED")
+			--             string.format("%.1f", gap_width) .. " tiles (max: " .. max_gap .. ") - FILTERED")
 			-- Don't add this waypoint or any after it
 			break
 		end
@@ -1360,7 +1725,6 @@ function pathing.handle_path_result(path_result)
 		storage.path_requests[path_result.id] = nil
 		
 		if status_table.finished == status_table.total_requests then
-			logging.warn("Pathing", "All paths failed for spider " .. spider.unit_number)
 			rendering.draw_error_text(spider, "No path found!", {0, -2.0})
 			spider_data.status = constants.idle
 			spider_data.requester_target = nil
@@ -1378,7 +1742,6 @@ function pathing.handle_path_result(path_result)
 	local filtered_waypoints = filter_water_waypoints(surface, waypoints, spider.position, can_traverse_water, spider)
 	
 	if #filtered_waypoints == 0 then
-		logging.warn("Pathing", "All waypoints filtered (water gaps too wide)")
 		status_table.finished = status_table.finished + 1
 		storage.path_requests[path_result.id] = nil
 		
@@ -1402,14 +1765,14 @@ function pathing.handle_path_result(path_result)
 	-- Get spider capabilities
 	local can_cliffs = can_spider_cross_cliffs(spider)
 	
-	-- Process waypoints: adjust near water, insert nest detours, simplify, then smooth
+	-- Process waypoints: adjust near water, insert nest detours, insert building detours, simplify, then smooth
 	processed_waypoints = adjust_waypoints_near_water(surface, processed_waypoints, spider, can_traverse_water)
 	processed_waypoints = insert_nest_detours(surface, processed_waypoints, spider, can_traverse_water)
+	processed_waypoints = insert_building_detours(surface, processed_waypoints, spider)
 	processed_waypoints = simplify_waypoints(surface, processed_waypoints, spider.position, can_traverse_water, can_cliffs)
 	processed_waypoints = smooth_waypoints(processed_waypoints, spider.position, surface, can_traverse_water, spider)
 	
-	logging.info("Pathing", "Path found for spider " .. spider.unit_number .. 
-	            " (" .. #processed_waypoints .. "/" .. #waypoints .. " waypoints after processing)")
+	--             " (" .. #processed_waypoints .. "/" .. #waypoints .. " waypoints after processing)")
 	
 	spider.autopilot_destination = nil
 	
@@ -1427,21 +1790,125 @@ function pathing.handle_path_result(path_result)
 		end
 	end
 	
-	-- Apply waypoints with minimum spacing
+	-- Cache the successful path for future use
+	local cache_key = get_pathfinding_cache_key(spider.position, destination_pos)
+	local waypoints_to_cache = {}
+	for i = start_index + 1, #processed_waypoints do
+		local wp = processed_waypoints[i]
+		table.insert(waypoints_to_cache, {x = wp.x, y = wp.y})
+	end
+	storage.pathfinding_cache[cache_key] = {
+		waypoints = waypoints_to_cache,
+		cache_tick = game.tick
+	}
+	
+	-- Apply waypoints with minimum spacing, ensuring paths between waypoints don't cross water
 	local last_pos = spider_pos
 	local min_spacing = (spider.prototype.height + 0.5) * 7.5
 	
 	for i = start_index + 1, #processed_waypoints do
 		local wp = processed_waypoints[i]
-		local dist = math.sqrt((wp.x - last_pos.x)^2 + (wp.y - last_pos.y)^2)
+		local wp_pos = {x = wp.x, y = wp.y}
+		local dist = math.sqrt((wp_pos.x - last_pos.x)^2 + (wp_pos.y - last_pos.y)^2)
 		
 		if dist > min_spacing then
-			spider.add_autopilot_destination({x = wp.x, y = wp.y})
-			last_pos = {x = wp.x, y = wp.y}
+			-- Check if path from last_pos to this waypoint would cross water
+			if not can_traverse_water and line_segment_crosses_water(surface, last_pos, wp_pos, can_traverse_water, spider) then
+				-- Path would cross water - add intermediate waypoints to avoid it
+				-- Sample points along the path more densely to find safe land points
+				local steps = math.max(5, math.ceil(dist / 3.0))  -- Check every ~3 tiles for better coverage
+				local last_safe_pos = last_pos
+				local found_land_point = false
+				
+				for step = 1, steps do
+					local t = step / steps
+					local check_x = last_pos.x + (wp_pos.x - last_pos.x) * t
+					local check_y = last_pos.y + (wp_pos.y - last_pos.y) * t
+					local check_pos = {x = check_x, y = check_y}
+					
+					-- Check if this point is on water (check both radius and exact tile)
+					local is_water = terrain.is_position_on_water(surface, check_pos, 0.5)
+					if not is_water then
+						-- Also check the exact tile
+						local check_tile = surface.get_tile(math.floor(check_x), math.floor(check_y))
+						if check_tile and check_tile.valid then
+							local tile_name = check_tile.name:lower()
+							is_water = tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
+						end
+					end
+					
+					if not is_water then
+						-- This point is on land - check if path from last_safe_pos to here is safe
+						local dist_to_safe = math.sqrt((check_pos.x - last_safe_pos.x)^2 + (check_pos.y - last_safe_pos.y)^2)
+						if dist_to_safe >= min_spacing * 0.5 and not line_segment_crosses_water(surface, last_safe_pos, check_pos, can_traverse_water, spider) then
+							-- Add intermediate waypoint on land
+							spider.add_autopilot_destination(check_pos)
+							last_safe_pos = check_pos
+							found_land_point = true
+						end
+					end
+				end
+				
+				-- Check if we can reach the final waypoint from the last safe position
+				if not line_segment_crosses_water(surface, last_safe_pos, wp_pos, can_traverse_water, spider) then
+					spider.add_autopilot_destination(wp_pos)
+					last_pos = wp_pos
+				elseif found_land_point then
+					-- We found at least one safe intermediate point, but can't reach final waypoint
+					-- Keep the last safe position and skip this waypoint
+					last_pos = last_safe_pos
+				else
+					-- No safe intermediate points found - skip this waypoint entirely
+					-- This waypoint might be unreachable due to water
+				end
+			else
+				-- Path is safe, add waypoint normally
+				spider.add_autopilot_destination(wp_pos)
+				last_pos = wp_pos
+			end
 		end
 	end
 	
-	spider.add_autopilot_destination(destination_pos)
+	-- Check final destination path
+	if not can_traverse_water and line_segment_crosses_water(surface, last_pos, destination_pos, can_traverse_water, spider) then
+		-- Path to destination would cross water - add intermediate waypoints
+		local dist = math.sqrt((destination_pos.x - last_pos.x)^2 + (destination_pos.y - last_pos.y)^2)
+		local steps = math.max(3, math.ceil(dist / 5.0))
+		local last_safe_pos = last_pos
+		
+		for step = 1, steps do
+			local t = step / steps
+			local check_x = last_pos.x + (destination_pos.x - last_pos.x) * t
+			local check_y = last_pos.y + (destination_pos.y - last_pos.y) * t
+			local check_pos = {x = check_x, y = check_y}
+			
+			-- Check if this point is on water (check both radius and exact tile)
+			local is_water = terrain.is_position_on_water(surface, check_pos, 0.5)
+			if not is_water then
+				-- Also check the exact tile
+				local check_tile = surface.get_tile(math.floor(check_x), math.floor(check_y))
+				if check_tile and check_tile.valid then
+					local tile_name = check_tile.name:lower()
+					is_water = tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
+				end
+			end
+			
+			if not is_water then
+				local dist_to_safe = math.sqrt((check_pos.x - last_safe_pos.x)^2 + (check_pos.y - last_safe_pos.y)^2)
+				if dist_to_safe >= min_spacing * 0.5 and not line_segment_crosses_water(surface, last_safe_pos, check_pos, can_traverse_water, spider) then
+					spider.add_autopilot_destination(check_pos)
+					last_safe_pos = check_pos
+				end
+			end
+		end
+		
+		-- Only add final destination if path is safe
+		if not line_segment_crosses_water(surface, last_safe_pos, destination_pos, can_traverse_water, spider) then
+			spider.add_autopilot_destination(destination_pos)
+		end
+	else
+		spider.add_autopilot_destination(destination_pos)
+	end
 	
 	status_table.finished = status_table.finished + 1
 	status_table.success = true

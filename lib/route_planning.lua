@@ -3,8 +3,47 @@
 
 local utils = require('lib.utils')
 local logging = require('lib.logging')
+local constants = require('lib.constants')
 
 local route_planning = {}
+
+-- Initialize distance cache if needed
+if not storage.distance_cache then
+	storage.distance_cache = {}
+end
+
+-- Cached distance calculation
+local function get_cached_distance(pos1, pos2)
+	-- Initialize cache if needed
+	if not storage.distance_cache then
+		storage.distance_cache = {}
+	end
+	
+	local key1 = string.format("%.1f,%.1f", pos1.x, pos1.y)
+	local key2 = string.format("%.1f,%.1f", pos2.x, pos2.y)
+	local cache_key = key1 .. "->" .. key2
+	local reverse_key = key2 .. "->" .. key1
+	
+	local cached = storage.distance_cache[cache_key] or storage.distance_cache[reverse_key]
+	if cached and cached.cache_tick then
+		local cache_age = game.tick - cached.cache_tick
+		if cache_age < constants.distance_cache_ttl then
+			return cached.distance
+		else
+			-- Cache expired
+			storage.distance_cache[cache_key] = nil
+			storage.distance_cache[reverse_key] = nil
+		end
+	end
+	
+	-- Calculate and cache
+	local distance = utils.distance(pos1, pos2)
+	storage.distance_cache[cache_key] = {
+		distance = distance,
+		cache_tick = game.tick
+	}
+	return distance
+end
 
 -- Calculate total distance for a route (ordered list of positions)
 local function calculate_route_distance(positions)
@@ -14,7 +53,7 @@ local function calculate_route_distance(positions)
 	for i = 1, #positions - 1 do
 		local pos1 = positions[i]
 		local pos2 = positions[i + 1]
-		total_distance = total_distance + utils.distance(pos1, pos2)
+		total_distance = total_distance + get_cached_distance(pos1, pos2)
 	end
 	return total_distance
 end
@@ -37,10 +76,10 @@ function route_planning.optimize_route_order(stops, start_position)
 	-- Nearest neighbor: always go to closest unvisited stop
 	while #remaining > 0 do
 		local best_index = 1
-		local best_distance = utils.distance(current_pos, remaining[1].position)
+		local best_distance = get_cached_distance(current_pos, remaining[1].position)
 		
 		for i = 2, #remaining do
-			local dist = utils.distance(current_pos, remaining[i].position)
+			local dist = get_cached_distance(current_pos, remaining[i].position)
 			if dist < best_distance then
 				best_distance = dist
 				best_index = i
@@ -102,11 +141,22 @@ end
 -- Feature 1: Multi-Pickup for Single Delivery
 -- Find multiple providers for same item, create optimized route
 function route_planning.find_multi_pickup_route(requester, item, needed_amount, providers, spider_position)
+	-- Skip route planning for very small networks
+	if #providers < constants.min_network_size_for_routes then
+		return nil
+	end
+	
 	local available_providers = {}
 	local total_available = 0
+	local checked_count = 0
 	
-	-- Find all providers that have this item
+	-- Find all providers that have this item (limit to max candidates for performance)
 	for _, provider_data in ipairs(providers) do
+		-- Early exit: limit number of candidates checked
+		if checked_count >= constants.max_route_candidates then
+			break
+		end
+		checked_count = checked_count + 1
 		local provider = provider_data.entity
 		if not provider or not provider.valid then goto next_provider end
 		
@@ -140,6 +190,7 @@ function route_planning.find_multi_pickup_route(requester, item, needed_amount, 
 			total_available = total_available + can_provide
 			
 			if total_available >= needed_amount then
+				-- Early exit: we have enough items
 				break
 			end
 		end
@@ -225,12 +276,23 @@ end
 -- Feature 2: Multi-Delivery from Single Pickup
 -- Find multiple requesters for same item, create optimized delivery route
 function route_planning.find_multi_delivery_route(provider, item, available_amount, requesters, spider_position)
+	-- Skip route planning for very small networks
+	if #requesters < constants.min_network_size_for_routes then
+		return nil
+	end
+	
 	local available_requesters = {}
 	local total_needed = 0
+	local checked_count = 0
 	
-	-- Find all requesters that need this item
+	-- Find all requesters that need this item (limit to max candidates for performance)
 	-- Note: requesters is a list of item_request objects, not requester_data objects
 	for i, item_request in ipairs(requesters) do
+		-- Early exit: limit number of candidates checked
+		if checked_count >= constants.max_route_candidates then
+			break
+		end
+		checked_count = checked_count + 1
 		-- Only process requests for the same item
 		if item_request.requested_item ~= item then
 			goto next_requester
@@ -321,18 +383,34 @@ end
 -- Feature 3: Multi-Pickup for Multiple Items
 -- One requester needs multiple items, find providers for each
 function route_planning.find_multi_item_route(requester, requested_items, providers, spider_position)
+	-- Skip route planning for very small networks
+	if #providers < constants.min_network_size_for_routes then
+		return nil
+	end
+	
 	-- requested_items is {[item_name] = count, ...}
 	local item_providers = {}  -- {item_name = {providers...}}
 	local total_items = 0
+	local checked_count = 0
 	
-	-- Find providers for each requested item
+	-- Find providers for each requested item (limit to max candidates for performance)
 	for item, needed_amount in pairs(requested_items) do
+		-- Early exit: limit number of items checked
+		if total_items >= 10 then
+			break
+		end
+		
 		if needed_amount <= 0 then goto next_item end
 		
 		local item_provider_list = {}
 		local total_available = 0
 		
 		for _, provider_data in ipairs(providers) do
+			-- Early exit: limit number of providers checked per item
+			if checked_count >= constants.max_route_candidates then
+				break
+			end
+			checked_count = checked_count + 1
 			local provider = provider_data.entity
 			if not provider or not provider.valid then goto next_provider end
 			
@@ -437,11 +515,21 @@ end
 -- Feature 4: Mixed Multi-Pickup and Multi-Delivery
 -- Multiple providers and multiple requesters for same item
 function route_planning.find_mixed_route(item, needed_amount, providers, requesters, spider_position)
+	-- Skip route planning for very small networks
+	if #providers < constants.min_network_size_for_routes or #requesters < constants.min_network_size_for_routes then
+		return nil
+	end
 	
-	-- Find all providers that have this item
+	-- Find all providers that have this item (limit to max candidates for performance)
 	local available_providers = {}
 	local total_available = 0
+	local checked_providers = 0
 	for _, provider_data in ipairs(providers) do
+		-- Early exit: limit number of providers checked
+		if checked_providers >= constants.max_route_candidates then
+			break
+		end
+		checked_providers = checked_providers + 1
 		local provider = provider_data.entity
 		if not provider or not provider.valid then goto next_provider end
 		
@@ -478,10 +566,16 @@ function route_planning.find_mixed_route(item, needed_amount, providers, request
 		::next_provider::
 	end
 	
-	-- Find all requesters that need this item
+	-- Find all requesters that need this item (limit to max candidates for performance)
 	local available_requesters = {}
 	local total_needed = 0
+	local checked_requesters = 0
 	for i, item_request in ipairs(requesters) do
+		-- Early exit: limit number of requesters checked
+		if checked_requesters >= constants.max_route_candidates then
+			break
+		end
+		checked_requesters = checked_requesters + 1
 		if item_request.requested_item == item and item_request.real_amount > 0 then
 			local requester = item_request.entity
 			local requester_data = item_request.requester_data
@@ -582,7 +676,7 @@ function route_planning.find_mixed_route(item, needed_amount, providers, request
 				local allocated = provider_allocations[provider_info.provider.unit_number] or 0
 				local available = provider_info.can_provide - allocated
 				if available > 0 then
-					local dist = utils.distance(requester_info.requester.position, provider_info.provider.position)
+					local dist = get_cached_distance(requester_info.requester.position, provider_info.provider.position)
 					table.insert(sorted_providers, {
 						provider_info = provider_info,
 						distance = dist,
@@ -632,6 +726,10 @@ end
 -- Multiple providers with different items, multiple requesters needing different items
 -- Example: Provider A has Item X, Provider B has Item Y, Requester 1 needs X, Requester 2 needs Y
 function route_planning.find_multi_item_multi_requester_route(requesters, providers, spider_position)
+	-- Skip route planning for very small networks
+	if #providers < constants.min_network_size_for_routes or #requesters < constants.min_network_size_for_routes then
+		return nil
+	end
 	
 	-- Group requests by item
 	local requests_by_item = {}

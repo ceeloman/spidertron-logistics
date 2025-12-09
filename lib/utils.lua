@@ -75,5 +75,43 @@ function utils.get_spider_logistic_requests(spider)
 	return requests
 end
 
+-- Check if a driver is a dummy engineer from neural-spider-control mod
+-- Dummy engineers are automated and won't interfere with logistics
+function utils.is_dummy_driver(driver)
+	if not driver or not driver.valid then
+		return false
+	end
+	
+	-- Check if neural-spider-control mod is present and has dummy engineers
+	-- Use storage (which neural-spider-control mod uses) or fall back to global
+	local neural_data = (storage and storage.neural_spider_control) or (global and global.neural_spider_control)
+	if not neural_data or not neural_data.dummy_engineers then
+		return false
+	end
+	
+	-- Check if this driver is in the dummy engineers list
+	for player_index, dummy_data in pairs(neural_data.dummy_engineers) do
+		if type(dummy_data) == "table" and dummy_data.entity then
+			-- Table format with entity reference
+			if dummy_data.entity == driver then
+				return true
+			end
+			if driver.unit_number and dummy_data.unit_number == driver.unit_number then
+				return true
+			end
+		elseif dummy_data and dummy_data.valid then
+			-- Direct entity reference
+			if dummy_data == driver then
+				return true
+			end
+			if driver.unit_number and dummy_data.unit_number and dummy_data.unit_number == driver.unit_number then
+				return true
+			end
+		end
+	end
+	
+	return false
+end
+
 return utils
 

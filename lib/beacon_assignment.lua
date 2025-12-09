@@ -77,11 +77,9 @@ function beacon_assignment.find_nearest_beacon(surface, position, force, exclude
 	}
 	
 	if #beacons == 0 then
-		-- logging.debug("Beacon", "[" .. context .. "] No beacons found on surface for position (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 		return nil
 	end
 	
-	-- logging.debug("Beacon", "[" .. context .. "] Found " .. #beacons .. " beacons on surface" .. (exclude_unit_number and " (excluding " .. exclude_unit_number .. ")" or ""))
 	
 	local nearest = nil
 	local nearest_distance = math.huge
@@ -94,28 +92,24 @@ function beacon_assignment.find_nearest_beacon(surface, position, force, exclude
 		
 		-- Skip excluded beacon
 		if exclude_unit_number and beacon.unit_number == exclude_unit_number then
-			-- logging.debug("Beacon", "[" .. context .. "] Skipping excluded beacon " .. beacon.unit_number)
 			excluded_count = excluded_count + 1
 			goto next_beacon
 		end
 		
 		-- Skip if beacon is not valid (being destroyed)
 		if not beacon.valid then
-			-- logging.debug("Beacon", "[" .. context .. "] Skipping invalid beacon entity " .. (beacon.unit_number or "unknown"))
 			invalid_count = invalid_count + 1
 			goto next_beacon
 		end
 		
 		-- Skip if beacon is not in storage (being destroyed or not registered)
 		if not storage.beacons[beacon.unit_number] then
-			-- logging.debug("Beacon", "[" .. context .. "] Skipping beacon " .. beacon.unit_number .. " not in storage")
 			skipped_count = skipped_count + 1
 			goto next_beacon
 		end
 		
 		-- Skip if beacon entity in storage is not valid
 		if not storage.beacons[beacon.unit_number].entity or not storage.beacons[beacon.unit_number].entity.valid then
-			-- logging.debug("Beacon", "[" .. context .. "] Skipping beacon " .. beacon.unit_number .. " with invalid entity in storage")
 			invalid_count = invalid_count + 1
 			goto next_beacon
 		end
@@ -129,13 +123,10 @@ function beacon_assignment.find_nearest_beacon(surface, position, force, exclude
 		::next_beacon::
 	end
 	
-	-- logging.debug("Beacon", "[" .. context .. "] Search results: " .. #beacons .. " total, " .. excluded_count .. " excluded, " .. invalid_count .. " invalid, " .. skipped_count .. " not in storage")
 	
 	if nearest then
-		-- logging.debug("Beacon", "[" .. context .. "] Found nearest beacon " .. nearest.unit_number .. " at distance " .. string.format("%.2f", nearest_distance))
 		return nearest
 	else
-		-- logging.warn("Beacon", "[" .. context .. "] No valid beacons found on surface for position (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 		return nil
 	end
 end
@@ -188,13 +179,11 @@ end
 function beacon_assignment.unassign_chest_from_beacon(chest_unit_number)
 	local beacon_unit_number = storage.beacon_assignments[chest_unit_number]
 	if beacon_unit_number then
-		-- logging.info("Beacon", "Unassigning chest " .. chest_unit_number .. " from beacon " .. beacon_unit_number)
 		local beacon_data = storage.beacons[beacon_unit_number]
 		if beacon_data and beacon_data.assigned_chests then
 			for i = #beacon_data.assigned_chests, 1, -1 do
 				if beacon_data.assigned_chests[i] == chest_unit_number then
 					table.remove(beacon_data.assigned_chests, i)
-					-- logging.info("Beacon", "Removed chest " .. chest_unit_number .. " from beacon " .. beacon_unit_number .. "'s assigned_chests list")
 					break
 				end
 			end
@@ -204,13 +193,10 @@ function beacon_assignment.unassign_chest_from_beacon(chest_unit_number)
 		-- Clear beacon_owner from chest data
 		if storage.providers[chest_unit_number] then
 			storage.providers[chest_unit_number].beacon_owner = nil
-			-- logging.info("Beacon", "Cleared beacon_owner from provider chest " .. chest_unit_number)
 		elseif storage.requesters[chest_unit_number] then
 			storage.requesters[chest_unit_number].beacon_owner = nil
-			-- logging.info("Beacon", "Cleared beacon_owner from requester chest " .. chest_unit_number)
 		end
 	else
-		-- logging.debug("Beacon", "Chest " .. chest_unit_number .. " was not assigned to any beacon (nothing to unassign)")
 	end
 end
 
@@ -260,15 +246,12 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest, exclude_beacon_
 		chest_type = "requester"
 	end
 	
-	-- logging.info("Beacon", "[" .. context .. "] assign_chest_to_nearest_beacon: " .. chest_type .. " chest " .. chest_unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")" .. (exclude_beacon_unit_number and " (excluding beacon " .. exclude_beacon_unit_number .. ")" or ""))
 	
 	local nearest_beacon = beacon_assignment.find_nearest_beacon(surface, position, force, exclude_beacon_unit_number, context)
 	if nearest_beacon then
-		-- logging.info("Beacon", "Found nearest beacon " .. nearest_beacon.unit_number .. " for " .. chest_type .. " chest " .. chest_unit_number)
 		
 		-- Ensure beacon is registered in storage
 		if not storage.beacons[nearest_beacon.unit_number] then
-			-- logging.info("Beacon", "Registering unregistered beacon " .. nearest_beacon.unit_number)
 			-- Register the beacon if it's not already registered
 			storage.beacons[nearest_beacon.unit_number] = {
 				entity = nearest_beacon,
@@ -283,15 +266,11 @@ function beacon_assignment.assign_chest_to_nearest_beacon(chest, exclude_beacon_
 		-- Update chest data
 		if storage.providers[chest_unit_number] then
 			storage.providers[chest_unit_number].beacon_owner = nearest_beacon.unit_number
-			-- logging.info("Beacon", "Provider chest " .. chest_unit_number .. " beacon_owner set to " .. nearest_beacon.unit_number)
 		elseif storage.requesters[chest_unit_number] then
 			storage.requesters[chest_unit_number].beacon_owner = nearest_beacon.unit_number
-			-- logging.info("Beacon", "Requester chest " .. chest_unit_number .. " beacon_owner set to " .. nearest_beacon.unit_number)
 		else
-			-- logging.warn("Beacon", "Chest " .. chest_unit_number .. " not found in storage after assignment - cannot set beacon_owner")
 		end
 	else
-		-- logging.warn("Beacon", "No beacon found for " .. chest_type .. " chest " .. chest_unit_number .. " at (" .. math.floor(position.x) .. "," .. math.floor(position.y) .. ")")
 	end
 end
 

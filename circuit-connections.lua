@@ -1,8 +1,8 @@
 return {
     circuit_connector_sprites = {
         blue_led_light_offset = {
-            1.203125,
-            0.828125
+            0.5,
+            0.5
         },
         connector_main = {
             filename = "__base__/graphics/entity/circuit-connector/hr-ccm-universal-04a-base-sequence.png",
@@ -10,8 +10,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.609375
+                0.5,
+                0.5
             },
             width = 52,
             x = 156,
@@ -23,8 +23,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.578125
+                0.5,
+                0.5
             },
             width = 60,
             x = 180,
@@ -36,8 +36,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.578125
+                0.5,
+                0.5
             },
             width = 46,
             x = 138,
@@ -49,8 +49,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.578125
+                0.5,
+                0.5
             },
             width = 48,
             x = 144,
@@ -66,16 +66,16 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.578125
+                0.5,
+                0.5
             },
             width = 48,
             x = 144,
             y = 138
         },
         red_green_led_light_offset = {
-            1.203125,
-            0.71875
+            0.5,
+            0.5
         },
         wire_pins = {
             filename = "__base__/graphics/entity/circuit-connector/hr-ccm-universal-04c-wire-sequence.png",
@@ -83,8 +83,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.046875,
-                0.578125
+                0.5,
+                0.5
             },
             width = 62,
             x = 186,
@@ -97,8 +97,8 @@ return {
             priority = "low",
             scale = 0.5,
             shift = {
-                1.203125,
-                0.703125
+                0.5,
+                0.5
             },
             width = 70,
             x = 210,
@@ -108,22 +108,22 @@ return {
     circuit_wire_connection_point = {
         shadow = {
             green = {
-                1.5,
-                0.71875
+                0.5,
+                0.5
             },
             red = {
-                1.65625,
-                0.703125
+                0.5,
+                0.5
             }
         },
         wire = {
             green = {
-                1.40625,
-                0.6875
+                0.5,
+                0.5
             },
             red = {
-                1.34375,
-                0.46875
+                0.5,
+                0.5
             }
         }
     },

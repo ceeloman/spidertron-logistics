@@ -179,7 +179,7 @@ function debug_commands.register_all()
 		end
 		
 		if count == 0 then
-			player.print("No provider chests found.")
+			-- player.print("No provider chests found.")
 		else
 			player.print(string.format("Total providers: %d", count))
 		end
@@ -509,6 +509,74 @@ function debug_commands.register_all()
 			table.insert(keys, tostring(k))
 		end
 		return keys
+	end
+
+	-- Command to list all open GUIs
+	success, err = pcall(function()
+		commands.add_command("list_guis", "Lists all open GUIs for debugging", function(event)
+			local player = game.get_player(event.player_index)
+			if not player or not player.valid then return end
+			
+			player.print("=== Open GUIs ===")
+			
+			-- Check player.opened
+			if player.opened then
+				player.print("player.opened: " .. tostring(player.opened.name) .. " (type: " .. tostring(player.opened.type) .. ")")
+			else
+				player.print("player.opened: nil")
+			end
+			
+			-- Check screen GUIs
+			local screen = player.gui.screen
+			if screen then
+				player.print("Screen GUIs:")
+				local count = 0
+				for name, child in pairs(screen.children) do
+					count = count + 1
+					local child_name = child.name or "unnamed"
+					local child_type = child.type or "unknown"
+					player.print(string.format("  [%s] %s (type: %s)", tostring(name), child_name, child_type))
+					
+					-- List children recursively (up to 2 levels deep)
+					if child.children then
+						local subcount = 0
+						for subname, subchild in pairs(child.children) do
+							subcount = subcount + 1
+							if subcount <= 5 then  -- Limit to first 5 children
+								local subchild_name = subchild.name or "unnamed"
+								local subchild_type = subchild.type or "unknown"
+								player.print(string.format("    [%s] %s (type: %s)", tostring(subname), subchild_name, subchild_type))
+							end
+						end
+						if subcount > 5 then
+							player.print(string.format("    ... and %d more children", subcount - 5))
+						end
+					end
+				end
+				if count == 0 then
+					player.print("  (no screen GUIs)")
+				end
+			end
+			
+			-- Check center GUIs
+			local center = player.gui.center
+			if center then
+				player.print("Center GUIs:")
+				local count = 0
+				for name, child in pairs(center.children) do
+					count = count + 1
+					local child_name = child.name or "unnamed"
+					local child_type = child.type or "unknown"
+					player.print(string.format("  [%s] %s (type: %s)", tostring(name), child_name, child_type))
+				end
+				if count == 0 then
+					player.print("  (no center GUIs)")
+				end
+			end
+		end)
+	end)
+	if not success then
+		-- Command already exists, skip registration
 	end
 end
 

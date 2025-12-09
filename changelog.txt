@@ -22,9 +22,6 @@ Version: 3.2.0
   Bugfixes:
     - Fixed item dumping logic to avoid dumping requested items
     - Improved beacon assignment robustness during entity lifecycle events
-  Other:
-    - Enhanced logging: better visibility into route assignments and item handling processes
-    - Cleaned up commented-out debug statements for code clarity
 ---------------------------------------------------------------------------------------------------
 Version: 3.1.0
   Features:
