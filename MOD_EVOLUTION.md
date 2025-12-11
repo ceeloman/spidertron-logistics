@@ -143,6 +143,20 @@ The fundamental idea hasn't changed: you place requester chests where you need i
 
 ---
 
+## Removed Features
+
+### Robot Logistic Chest Support (Removed in Version 3.3.0)
+
+**What Was Removed**: Support for using vanilla robot logistic chests (storage-chest, active-provider-chest, passive-provider-chest) as providers in the spidertron logistics network.
+
+**Why It Was Removed**: This feature caused significant performance issues. The system was scanning and caching all robot chests across the entire surface, which became problematic in large bases. The performance cost outweighed the convenience benefit.
+
+**What This Means**: You can no longer use vanilla storage chests, active provider chests, or passive provider chests as sources for spidertron logistics. You must use the custom spidertron logistics provider chests instead.
+
+**Future Plans**: Robot chest support may be re-added in the future with an optimized implementation that uses chunk-based scanning and only processes chests that contain requested items. See the "Future Plans" section for more details.
+
+---
+
 ## Summary: What This Means for You
 
 **Easier to Get Started**: Cheaper recipes and earlier technology unlock mean you can start using spidertron logistics much sooner in your playthrough.
@@ -178,7 +192,19 @@ This would allow spiders to handle multiple deliveries more efficiently by batch
 
 ### Robot Logistic Chest Integration
 
-**Idea**: Make the spidertron logistics chests also function as robot logistic chests, allowing regular logistic robots to interact with them.
+**Previous Implementation**: In version 3.0.0, robot logistic chests (storage-chest, active-provider-chest, passive-provider-chest) were added as providers, allowing spiders to pick up items from regular robot chests.
+
+**Current Status**: This feature was removed in version 3.3.0 due to performance concerns. The system was scanning and caching all robot chests across the entire surface, which caused significant performance issues, especially in large bases.
+
+**Future Implementation**: Robot chest support may be re-added with optimized implementation:
+- Use chunk-based scanning instead of full surface scans
+- Only scan chunks where requesters exist
+- Process robot chests in batches (N chests per cycle)
+- Only cache robot chests that contain requested items
+- Update cache when robot chests are built/destroyed
+- This would allow robots to fill the chests while spiders handle long-distance delivery
+
+**Alternative Idea**: Make the spidertron logistics chests also function as robot logistic chests, allowing regular logistic robots to interact with them.
 
 **Considerations**:
 - This could be game-breaking since buffer chests are locked behind later-game technology
@@ -188,7 +214,6 @@ This would allow spiders to handle multiple deliveries more efficiently by batch
 **Potential Approach**: 
 - Keep the 1x1 chests as regular storage chests (robot-accessible)
 - Add a 2x2 buffer chest variant that functions as both spidertron logistics and robot buffer chests
-- This would allow robots to fill the chests while spiders handle long-distance delivery
 
 ### GUI Improvements
 

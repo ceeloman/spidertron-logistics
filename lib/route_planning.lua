@@ -141,8 +141,8 @@ end
 -- Feature 1: Multi-Pickup for Single Delivery
 -- Find multiple providers for same item, create optimized route
 function route_planning.find_multi_pickup_route(requester, item, needed_amount, providers, spider_position)
-	-- Skip route planning for very small networks
-	if #providers < constants.min_network_size_for_routes then
+	-- For multi-pickup, we need at least 2 providers (picking from multiple sources)
+	if #providers < 2 then
 		return nil
 	end
 	
@@ -163,20 +163,12 @@ function route_planning.find_multi_pickup_route(requester, item, needed_amount, 
 		local item_count = 0
 		local allocated = 0
 		
-		if provider_data.is_robot_chest then
-			if provider_data.contains and provider_data.contains[item] then
-				item_count = provider_data.contains[item]
-			else
-				item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-			end
-			allocated = 0
-		else
-			item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-			if not provider_data.allocated_items then
-				provider_data.allocated_items = {}
-			end
-			allocated = provider_data.allocated_items[item] or 0
+		-- TODO: Robot chest support removed - previously checked is_robot_chest
+		item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+		if not provider_data.allocated_items then
+			provider_data.allocated_items = {}
 		end
+		allocated = provider_data.allocated_items[item] or 0
 		
 		local can_provide = item_count - allocated
 		if can_provide > 0 then
@@ -276,8 +268,8 @@ end
 -- Feature 2: Multi-Delivery from Single Pickup
 -- Find multiple requesters for same item, create optimized delivery route
 function route_planning.find_multi_delivery_route(provider, item, available_amount, requesters, spider_position)
-	-- Skip route planning for very small networks
-	if #requesters < constants.min_network_size_for_routes then
+	-- For multi-delivery, we need at least 2 requesters (delivering to multiple destinations)
+	if #requesters < 2 then
 		return nil
 	end
 	
@@ -515,8 +507,8 @@ end
 -- Feature 4: Mixed Multi-Pickup and Multi-Delivery
 -- Multiple providers and multiple requesters for same item
 function route_planning.find_mixed_route(item, needed_amount, providers, requesters, spider_position)
-	-- Skip route planning for very small networks
-	if #providers < constants.min_network_size_for_routes or #requesters < constants.min_network_size_for_routes then
+	-- For mixed routes (multi-pickup + multi-delivery), we need at least 2 providers and 2 requesters
+	if #providers < 2 or #requesters < 2 then
 		return nil
 	end
 	
@@ -536,20 +528,12 @@ function route_planning.find_mixed_route(item, needed_amount, providers, request
 		local item_count = 0
 		local allocated = 0
 		
-		if provider_data.is_robot_chest then
-			if provider_data.contains and provider_data.contains[item] then
-				item_count = provider_data.contains[item]
-			else
-				item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-			end
-			allocated = 0
-		else
-			item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-			if not provider_data.allocated_items then
-				provider_data.allocated_items = {}
-			end
-			allocated = provider_data.allocated_items[item] or 0
+		-- TODO: Robot chest support removed - previously checked is_robot_chest
+		item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+		if not provider_data.allocated_items then
+			provider_data.allocated_items = {}
 		end
+		allocated = provider_data.allocated_items[item] or 0
 		
 		local can_provide = item_count - allocated
 		if can_provide > 0 then
@@ -726,8 +710,13 @@ end
 -- Multiple providers with different items, multiple requesters needing different items
 -- Example: Provider A has Item X, Provider B has Item Y, Requester 1 needs X, Requester 2 needs Y
 function route_planning.find_multi_item_multi_requester_route(requesters, providers, spider_position)
-	-- Skip route planning for very small networks
-	if #providers < constants.min_network_size_for_routes or #requesters < constants.min_network_size_for_routes then
+	-- For multi-item, multi-requester routes, we need at least:
+	-- - 2 different items (checked later)
+	-- - 2 requesters (one per item minimum)
+	-- - 2 providers (to make it worthwhile)
+	-- So we can use a lower threshold than other route types
+	if #providers < 2 or #requesters < 2 then
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Too few providers (" .. #providers .. ") or requesters (" .. #requesters .. ")")
 		return nil
 	end
 	
@@ -745,10 +734,12 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 	
 	-- Need at least 2 different items for this to make sense
 	local item_count = 0
-	for _ in pairs(requests_by_item) do
+	for item, _ in pairs(requests_by_item) do
 		item_count = item_count + 1
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Item " .. item_count .. " = " .. item)
 	end
 	if item_count < 2 then
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Only " .. item_count .. " item(s), need 2+")
 		return nil
 	end
 	
@@ -758,6 +749,7 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 		-- Find providers for this item
 		local available_providers = {}
 		local total_available = 0
+		-- TODO: Robot chest support removed - previously tracked robot_chest_count
 		for _, provider_data in ipairs(providers) do
 			local provider = provider_data.entity
 			if not provider or not provider.valid then goto next_provider end
@@ -765,20 +757,12 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 			local item_count = 0
 			local allocated = 0
 			
-			if provider_data.is_robot_chest then
-				if provider_data.contains and provider_data.contains[item] then
-					item_count = provider_data.contains[item]
-				else
-					item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-				end
-				allocated = 0
-			else
-				item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
-				if not provider_data.allocated_items then
-					provider_data.allocated_items = {}
-				end
-				allocated = provider_data.allocated_items[item] or 0
+			-- TODO: Robot chest support removed - previously checked is_robot_chest
+			item_count = provider.get_inventory(defines.inventory.chest).get_item_count(item)
+			if not provider_data.allocated_items then
+				provider_data.allocated_items = {}
 			end
+			allocated = provider_data.allocated_items[item] or 0
 			
 			local can_provide = item_count - allocated
 			if can_provide > 0 then
@@ -788,10 +772,13 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 					can_provide = can_provide
 				})
 				total_available = total_available + can_provide
+				log("[ROUTE_PLANNING] Provider " .. provider.unit_number .. " (custom) can provide " .. can_provide .. " " .. item)
 			end
 			
 			::next_provider::
 		end
+		
+		log("[ROUTE_PLANNING] Item " .. item .. " - total_providers=" .. #providers .. ", available_providers=" .. #available_providers)
 		
 		-- Find requesters for this item
 		local available_requesters = {}
@@ -818,6 +805,7 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 		end
 		
 		-- Need at least 1 provider and 1 requester for this item
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Item " .. item .. " - providers=" .. #available_providers .. ", requesters=" .. #available_requesters .. ", total_available=" .. total_available .. ", total_needed=" .. total_needed)
 		if #available_providers > 0 and #available_requesters > 0 then
 			item_routes[item] = {
 				providers = available_providers,
@@ -825,15 +813,20 @@ function route_planning.find_multi_item_multi_requester_route(requesters, provid
 				total_available = total_available,
 				total_needed = total_needed
 			}
+			log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Item " .. item .. " added to item_routes")
+		else
+			log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Item " .. item .. " SKIPPED - no providers or requesters")
 		end
 	end
 	
 	-- Need at least 2 items with both providers and requesters
 	local valid_item_count = 0
-	for _ in pairs(item_routes) do
+	for item, _ in pairs(item_routes) do
 		valid_item_count = valid_item_count + 1
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Valid item " .. valid_item_count .. " = " .. item)
 	end
 	if valid_item_count < 2 then
+		log("[ROUTE_PLANNING] find_multi_item_multi_requester_route: Only " .. valid_item_count .. " valid item(s), need 2+")
 		return nil
 	end
 	

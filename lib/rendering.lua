@@ -214,5 +214,87 @@ function rendering.draw_error_text(target, message, offset)
 	}
 end
 
+-- Draw status text above spidertron showing current action
+function rendering.draw_status_text(spider, spider_data)
+	if not spider or not spider.valid then return end
+	if not spider_data then return end
+	
+	local draw_text = global_rendering.draw_text
+	
+	-- Only show text for active statuses (not idle)
+	if spider_data.status == constants.idle then
+		-- Destroy old status text if spider is idle
+		if spider_data.status_text and spider_data.status_text.valid then
+			spider_data.status_text.destroy()
+			spider_data.status_text = nil
+		end
+		return
+	end
+	
+	-- Track last drawn status to only redraw when status changes
+	-- This prevents constantly recreating status text every tick
+	if spider_data.last_drawn_status == spider_data.status and spider_data.status_text and spider_data.status_text.valid then
+		-- Status hasn't changed and text still exists, don't redraw
+		return
+	end
+	
+	-- Destroy old status text if it exists (status changed or text invalid)
+	if spider_data.status_text and spider_data.status_text.valid then
+		spider_data.status_text.destroy()
+		spider_data.status_text = nil
+	end
+	
+	-- Update last drawn status
+	spider_data.last_drawn_status = spider_data.status
+	
+	local status_text = ""
+	local text_color = {r = 1.0, g = 1.0, b = 1.0}  -- White color
+	
+	if spider_data.status == constants.dumping_items then
+		status_text = "Dropping off unrequested items"
+		text_color = {r = 1.0, g = 0.8, b = 0.2}  -- Yellow/orange color
+	elseif spider_data.status == constants.picking_up then
+		if spider_data.payload_item then
+			local item_prototype = prototypes.item[spider_data.payload_item]
+			if item_prototype then
+				status_text = {"", "Collecting ", item_prototype.localised_name}
+			else
+				status_text = "Collecting " .. spider_data.payload_item
+			end
+		else
+			status_text = "Collecting items"
+		end
+		text_color = {r = 0.2, g = 0.8, b = 1.0}  -- Light blue color
+	elseif spider_data.status == constants.dropping_off then
+		if spider_data.payload_item then
+			local item_prototype = prototypes.item[spider_data.payload_item]
+			if item_prototype then
+				status_text = {"", "Delivering ", item_prototype.localised_name}
+			else
+				status_text = "Delivering " .. spider_data.payload_item
+			end
+		else
+			status_text = "Delivering items"
+		end
+		text_color = {r = 0.2, g = 1.0, b = 0.2}  -- Green color
+	else
+		-- Unknown status, don't show text
+		return
+	end
+	
+	-- Draw the status text
+	spider_data.status_text = draw_text{
+		text = status_text,
+		surface = spider.surface,
+		target = spider,
+		target_offset = {0, -2.0},  -- Above spider's head
+		color = text_color,
+		scale = 1.0,
+		font = "default-game",
+		time_to_live = 60,  -- Update every 60 ticks (1 second)
+		alignment = "center"
+	}
+end
+
 return rendering
 

@@ -6,6 +6,7 @@ local pathing = require('lib.pathing')
 local utils = require('lib.utils')
 local logging = require('lib.logging')
 local logistics = require('lib.logistics')
+local rendering = require('lib.rendering')
 
 local journey = {}
 
@@ -70,7 +71,10 @@ function journey.advance_route(unit_number)
 	
 	-- Set destination to next stop
 	local pathing_success = pathing.set_smart_destination(spider, next_stop.entity.position, next_stop.entity)
-	if not pathing_success then
+	if pathing_success then
+		-- Draw status text after successful pathing
+		rendering.draw_status_text(spider, spider_data)
+	else
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
@@ -203,7 +207,8 @@ function journey.resume_task(unit_number)
 	-- Restore allocations if needed
 	if saved.status == constants.picking_up and provider and saved.payload_item and saved.payload_item_count then
 		local provider_data = storage.providers[provider.unit_number]
-		if provider_data and not provider_data.is_robot_chest then
+		-- TODO: Robot chest support removed - previously skipped allocation for robot chests
+		if provider_data then
 			if not provider_data.allocated_items then
 				provider_data.allocated_items = {}
 			end
@@ -263,9 +268,13 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	
 	-- If spider has a route, clear it (unless we're saving for resume)
 	if spider_data.route and not save_for_resume then
+		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " clearing route (save_for_resume=" .. tostring(save_for_resume) .. ", route_length=" .. #spider_data.route .. ", current_index=" .. (spider_data.current_route_index or "nil") .. ")")
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
+		spider_data.route_payload = nil  -- Clear route payload when route completes
+	elseif spider_data.route then
+		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " keeping route (save_for_resume=" .. tostring(save_for_resume) .. ")")
 	end
 	
 	local item = spider_data.payload_item
@@ -274,17 +283,32 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	local beacon_starting_point = spider
 	
 	-- Only clear allocations if not saving for resume
+	-- Only decrement incoming_items if items were actually delivered (status is dropping_off)
+	-- If status is picking_up, the journey was cancelled before delivery, so don't decrement incoming_items
 	if not save_for_resume then
 		local requester = spider_data.requester_target
 		if requester and requester.valid then
 			local requester_data = storage.requesters[requester.unit_number]
 			if requester_data and item then
-				if not requester_data.incoming_items then
-					requester_data.incoming_items = {}
-				end
-				requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
-				if requester_data.incoming_items[item] <= 0 then
-					requester_data.incoming_items[item] = nil
+				-- Only decrement incoming_items if items were actually delivered
+				-- If status is picking_up, the journey was cancelled before delivery
+				if spider_data.status == constants.dropping_off then
+					if not requester_data.incoming_items then
+						requester_data.incoming_items = {}
+					end
+					requester_data.incoming_items[item] = (requester_data.incoming_items[item] or 0) - item_count
+					if requester_data.incoming_items[item] <= 0 then
+						requester_data.incoming_items[item] = nil
+					end
+					-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Decremented incoming_items - requester=" .. requester.unit_number .. 
+					-- 	", item=" .. item .. 
+					-- 	", item_count=" .. item_count .. 
+					-- 	", incoming_after=" .. (requester_data.incoming_items[item] or 0))
+				-- else
+				-- 	game.print("[END_JOURNEY] Tick " .. game.tick .. ": NOT decrementing incoming_items (journey cancelled) - requester=" .. requester.unit_number .. 
+				-- 		", item=" .. item .. 
+				-- 		", status=" .. spider_data.status .. 
+				-- 		", item_count=" .. item_count)
 				end
 			end
 		end
@@ -302,6 +326,23 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 		end
 	end
 	
+	-- Mark that spider just finished dumping or delivery (if it was in dumping_items or dropping_off status)
+	-- Do this BEFORE checking beacon pathing so we can skip it if we're assigning a job
+	local was_dumping = (spider_data.status == constants.dumping_items)
+	local was_delivering = (spider_data.status == constants.dropping_off)
+	
+	if was_dumping then
+		spider_data.just_finished_dumping = true
+		game.print("[DUMP_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished dumping, setting just_finished_dumping flag")
+	elseif was_delivering then
+		spider_data.just_finished_delivery = true
+		game.print("[DELIVERY_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished delivery, setting just_finished_delivery flag")
+	end
+	
+	-- Check if we're about to assign a job immediately (after dumping or delivery)
+	-- If so, skip pathing to beacon - the job assignment will handle pathing
+	local will_get_immediate_job = ((spider_data.just_finished_dumping or spider_data.just_finished_delivery) and spider.valid and spider_data.active)
+	
 	-- Determine beacon starting point for pathfinding
 	local beacon_starting_point = spider
 	local requester = spider_data.requester_target
@@ -316,20 +357,9 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 		end
 	end
 	
-	local beacon_starting_point = spider
-	local requester = spider_data.requester_target
-	if requester and requester.valid then
-		beacon_starting_point = requester
-	end
-	
-	if spider_data.status == constants.picking_up then
-		local provider = spider_data.provider_target
-		if provider and provider.valid then
-			beacon_starting_point = provider
-		end
-	end
-	
-	if find_beacon and spider.valid then
+	if find_beacon and spider.valid and not will_get_immediate_job then
+		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to beacon (find_beacon=true, will_get_immediate_job=" .. tostring(will_get_immediate_job) .. ")")
+		
 		-- Try to find beacon with highest pickup count (most activity) within reasonable distance
 		-- This helps distribute spiders to the most active beacons
 		local active_beacon = beacon_assignment.find_beacon_with_highest_pickup_count(
@@ -341,19 +371,24 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 		
 		if active_beacon and active_beacon.valid then
 			pathing.set_smart_destination(spider, active_beacon.position, active_beacon)
+			game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to active beacon at (" .. math.floor(active_beacon.position.x) .. "," .. math.floor(active_beacon.position.y) .. ")")
 		else
 			-- Fallback to nearest beacon if no active beacon found
 		local current_network = beacon_assignment.spidertron_network(beacon_starting_point)
 		if current_network and current_network.beacon and current_network.beacon.valid then
 			pathing.set_smart_destination(spider, current_network.beacon.position, current_network.beacon)
+			game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to network beacon at (" .. math.floor(current_network.beacon.position.x) .. "," .. math.floor(current_network.beacon.position.y) .. ")")
 		else
 			-- Fallback: find any beacon on the surface
 			local nearest_beacon = beacon_assignment.find_nearest_beacon(spider.surface, beacon_starting_point.position, spider.force, nil, "end_journey_fallback")
 			if nearest_beacon then
 				pathing.set_smart_destination(spider, nearest_beacon.position, nearest_beacon)
+				game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to nearest beacon at (" .. math.floor(nearest_beacon.position.x) .. "," .. math.floor(nearest_beacon.position.y) .. ")")
 			end
 		end
 		end
+	elseif find_beacon and will_get_immediate_job then
+		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " SKIPPING beacon pathing - will get immediate job assignment")
 	end
 	
 	-- Only clear targets if not saving for resume
@@ -416,9 +451,30 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	
 	-- Set to idle (needed for resumption check)
 	spider_data.status = constants.idle
+	game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " status set to IDLE (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ")")
 	-- Clear retry counters
 	spider_data.pickup_retry_count = nil
 	spider_data.dropoff_retry_count = nil
+	-- Clean up status text
+	if spider_data.status_text and spider_data.status_text.valid then
+		spider_data.status_text.destroy()
+		spider_data.status_text = nil
+	end
+	
+	-- If spider just finished dumping or delivery and is now idle, trigger immediate job check
+	-- This prevents waiting 240 ticks for the next update cycle
+	if (spider_data.just_finished_dumping or spider_data.just_finished_delivery) and spider.valid and spider_data.active then
+		spider_data.just_finished_dumping = nil
+		spider_data.just_finished_delivery = nil
+		-- Set flag to trigger immediate job assignment on next tick
+		spider_data.needs_immediate_job_check = true
+		game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " set needs_immediate_job_check flag (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ", active=" .. tostring(spider_data.active) .. ")")
+	elseif spider_data.just_finished_dumping or spider_data.just_finished_delivery then
+		spider_data.just_finished_dumping = nil
+		spider_data.just_finished_delivery = nil
+		game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished task but NOT setting immediate job check (valid=" .. tostring(spider.valid) .. ", active=" .. tostring(spider_data.active) .. ")")
+	end
+	
 	-- Note: saved_task is preserved if save_for_resume was true, allowing resumption
 end
 
@@ -525,6 +581,8 @@ function journey.deposit_already_had(spider_data)
 	spider_data.payload_item = item
 	spider_data.payload_item_count = can_provide
 	pathing.set_smart_destination(spider, requester.position, requester_data.entity)
+	-- Draw status text
+	rendering.draw_status_text(spider, spider_data)
 end
 
 -- Check if spider has items that need to be dumped
@@ -623,12 +681,45 @@ function journey.attempt_dump_items(unit_number)
 	local nearest_storage = nil
 	local nearest_distance = nil
 	
-	-- Search for storage chests in the network
-	local storage_chests = surface.find_entities_filtered{
-		name = 'storage-chest',
+	-- Search for logistic containers with storage mode in the network
+	local all_logistic_containers = surface.find_entities_filtered{
+		type = 'logistic-container',
 		force = spider.force,
 		to_be_deconstructed = false
 	}
+	
+	-- Filter to only storage mode containers
+	local storage_chests = {}
+	for i, container in ipairs(all_logistic_containers) do
+		-- Check logistic_mode from entity first, then fall back to prototype
+		local logistic_mode = nil
+		
+		-- Try entity property first
+		local success_entity, entity_mode = pcall(function() return container.logistic_mode end)
+		if success_entity and entity_mode then
+			logistic_mode = entity_mode
+		else
+			-- Fall back to prototype
+			local success_proto, proto_mode = pcall(function() return container.prototype.logistic_mode end)
+			if success_proto and proto_mode then
+				logistic_mode = proto_mode
+			end
+		end
+		
+		if logistic_mode then
+			-- Check if it's storage mode - handle both string "storage" and numeric defines.logistic_mode.storage
+			local is_storage = false
+			if type(logistic_mode) == "string" then
+				is_storage = (logistic_mode == "storage")
+			else
+				is_storage = (logistic_mode == defines.logistic_mode.storage)
+			end
+			
+			if is_storage then
+				table.insert(storage_chests, container)
+			end
+		end
+	end
 	
 	-- Check if any storage chests exist at all
 	if not storage_chests or #storage_chests == 0 then
@@ -740,6 +831,8 @@ function journey.attempt_dump_items(unit_number)
 			spider_data.dump_target = nil
 			return false
 		end
+		-- Draw status text
+		rendering.draw_status_text(spider, spider_data)
 		return true
 	else
 		-- No suitable storage chest found (all are full or filtered) - print message and return without setting dumping_items status

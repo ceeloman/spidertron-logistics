@@ -264,7 +264,8 @@ function debug_commands.register_all()
 			for _, provider_data in ipairs(providers_for_network) do
 				local provider = provider_data.entity
 				if provider and provider.valid then
-					local chest_type = provider_data.is_robot_chest and "ROBOT" or "CUSTOM"
+					-- TODO: Robot chest support removed - previously showed "ROBOT" or "CUSTOM"
+					local chest_type = "CUSTOM"
 					local items_count = 0
 					if provider_data.contains then
 						for _ in pairs(provider_data.contains) do
@@ -305,6 +306,21 @@ function debug_commands.register_all()
 		
 		player.print(string.format("Summary: %d requests, %d providers, %d available spiders, %d assigned", 
 			total_requests, total_providers, total_spiders, assigned_count))
+		end)
+	end)
+	if not success then
+		-- Command already exists, skip registration
+	end
+
+	-- Command to validate all requesters
+	success, err = pcall(function()
+		commands.add_command("validate_requests", "Validates all requester chests and clears stale data - use this after loading a game or updating the mod", function(event)
+		local player = game.get_player(event.player_index)
+		if not player or not player.valid then return end
+		
+		player.print("Validating all requester chests...")
+		logistics.validate_all_requesters()
+		player.print("Validation complete! Check console for details.")
 		end)
 	end)
 	if not success then

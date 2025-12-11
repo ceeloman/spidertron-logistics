@@ -20,7 +20,7 @@ constants.distance_delay_multiplier = 0.1  -- For every tile beyond base, increa
 constants.critical_fill_threshold = 0.2  -- If requester fill % < 20%, never delay (urgent)
 
 -- Cache TTL constants (in ticks)
-constants.inventory_cache_ttl = 10  -- Inventory cache expires after 10 ticks (~0.17 seconds) - reduced for better responsiveness
+constants.inventory_cache_ttl = 1  -- Inventory cache expires after 1 tick - always refresh to avoid stale data
 constants.pathfinding_cache_ttl = 300  -- Pathfinding cache expires after 300 ticks (5 seconds)
 constants.distance_cache_ttl = 600  -- Distance cache expires after 600 ticks (10 seconds)
 

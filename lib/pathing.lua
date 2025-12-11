@@ -612,28 +612,44 @@ local function simplify_waypoints(surface, waypoints, start_pos, can_water, can_
 			if i < #waypoints - 1 then
 				next_wp = waypoints[i + 1]
 				next_waypoint = next_wp.position or next_wp
-				distance_to_next = math.sqrt(
-					(next_waypoint.x - last_kept_pos.x)^2 + 
-					(next_waypoint.y - last_kept_pos.y)^2
-				)
 				
-				-- Calculate angle if we skip this waypoint
-				skip_angle = 180  -- Default to worst case
-				if i + 1 < #waypoints then
-					-- There's a waypoint after next, check if path is straight
-					next_next_wp = waypoints[i + 2]
-					next_next = next_next_wp.position or next_next_wp
-					skip_angle = calculate_angle(last_kept_pos, next_waypoint, next_next)
+				-- CRITICAL: Never skip if the next waypoint is locked
+				-- Also check if any waypoint between current and next is locked
+				local has_locked_ahead = false
+				if next_wp.locked then
+					has_locked_ahead = true
 				end
 				
-				-- If skipping creates a reasonably straight path, skip this waypoint
-				-- Only skip if the path remains straight and distance is sufficient
-				if distance_to_next >= min_distance and skip_angle < MAX_ANGLE_STRAIGHT * 1.5 then
-					i = i + 1  -- Skip to next waypoint
-					goto continue
+				if has_locked_ahead then
+					-- Can't skip - there's a locked waypoint ahead, must keep current waypoint
+					should_keep = true
+				else
+					distance_to_next = math.sqrt(
+						(next_waypoint.x - last_kept_pos.x)^2 + 
+						(next_waypoint.y - last_kept_pos.y)^2
+					)
+					
+					-- Calculate angle if we skip this waypoint
+					skip_angle = 180  -- Default to worst case
+					if i + 1 < #waypoints then
+						-- There's a waypoint after next, check if path is straight
+						next_next_wp = waypoints[i + 2]
+						next_next = next_next_wp.position or next_next_wp
+						skip_angle = calculate_angle(last_kept_pos, next_waypoint, next_next)
+					end
+					
+					-- If skipping creates a reasonably straight path, skip this waypoint
+					-- Only skip if the path remains straight and distance is sufficient
+					-- AND if we're not skipping over any locked waypoints
+					if distance_to_next >= min_distance and skip_angle < MAX_ANGLE_STRAIGHT * 1.5 then
+						i = i + 1  -- Skip to next waypoint
+						goto continue
+					end
 				end
 			end
-			should_keep = true
+			if not should_keep then
+				should_keep = true
+			end
 		elseif angle > MIN_ANGLE_TURN then
 			-- Sharp turn - keep waypoint even if distance is small
 			should_keep = true
@@ -800,62 +816,32 @@ end
 -- Check if a line segment crosses water (for spiders that can't traverse water)
 -- Now accounts for spider size - spidertrons can step over gaps up to 15 tiles
 local function line_segment_crosses_water(surface, start_pos, end_pos, can_water, spider)
-	if can_water then
-		-- Spider can traverse water, so crossing is OK
-		return false
-	end
-	
-	local gap_tolerance = get_spider_water_gap_tolerance(spider)
-	
-	-- Check multiple points along the line segment
-	local distance = math.sqrt((end_pos.x - start_pos.x)^2 + (end_pos.y - start_pos.y)^2)
-	local steps = math.max(3, math.ceil(distance / 1.0))  -- Check every ~1 tile for better precision
-	
-	local consecutive_water_count = 0
-	local max_consecutive_water = 0
-	
-	for i = 0, steps do
-		local t = i / steps
-		local check_x = start_pos.x + (end_pos.x - start_pos.x) * t
-		local check_y = start_pos.y + (end_pos.y - start_pos.y) * t
-		
-		-- Check if this point is on water (use smaller radius for exact detection)
-		local is_water = terrain.is_position_on_water(surface, {x = check_x, y = check_y}, 0.5)
-		
-		-- Also check the exact tile
-		if not is_water then
-			local check_tile = surface.get_tile(math.floor(check_x), math.floor(check_y))
-			if check_tile and check_tile.valid then
-				local tile_name = check_tile.name:lower()
-				is_water = tile_name:find("water") or tile_name:find("lava") or tile_name:find("lake") or tile_name:find("ammoniacal")
-			end
-		end
-		
-		if is_water then
-			consecutive_water_count = consecutive_water_count + 1
-			max_consecutive_water = math.max(max_consecutive_water, consecutive_water_count)
-		else
-			consecutive_water_count = 0
-		end
-	end
-	
-	-- If the maximum consecutive water gap is within tolerance, spider can step over it
-	-- Convert consecutive count to approximate tile distance
-	-- Each step represents (distance / steps) tiles, so consecutive water steps = (consecutive / steps) * distance
-	local water_gap_width = (max_consecutive_water / steps) * distance
-	
-	
-	-- If gap is small enough, allow crossing (land bridge scenario)
-	-- Also allow if there's no water at all (max_consecutive_water == 0)
-	if max_consecutive_water == 0 then
-		-- No water detected - path is safe
-		return false  -- Don't block
-	elseif water_gap_width <= gap_tolerance then
-		return false  -- Can step over, don't block
-	end
-	
-	-- If there's any water that's too wide, block the path
-	return true  -- Blocks path
+    if can_water then
+        return false
+    end
+    
+    local gap_tolerance = get_spider_water_gap_tolerance(spider)
+    
+    -- Check if both endpoints are on land
+    local start_is_land = not terrain.is_position_directly_on_water(surface, start_pos)
+    local end_is_land = not terrain.is_position_directly_on_water(surface, end_pos)
+    
+    -- If both endpoints are on land, assume path is OK
+    -- (pathfinder generated it, so it should be routable)
+    if start_is_land and end_is_land then
+        return false  -- Don't block
+    end
+    
+    -- If either endpoint is in water, check the gap distance
+    local distance = math.sqrt((end_pos.x - start_pos.x)^2 + (end_pos.y - start_pos.y)^2)
+    
+    -- If gap is small enough for spider to step over, allow it
+    if distance <= gap_tolerance then
+        return false
+    end
+    
+    -- Large gap with water - block it
+    return true
 end
 
 -- Smooth waypoints by cutting corners (skips locked waypoints)
@@ -883,6 +869,17 @@ local function smooth_waypoints(waypoints, start_pos, surface, can_water, spider
 		if curr_pos.locked then
 			table.insert(smoothed, curr_pos)
 			goto continue
+		end
+		
+		-- NEW: Check if current waypoint is near water - if so, don't smooth it
+		-- This prevents smoothing from creating shortcuts across water
+		if surface and not can_water then
+			local is_near_water = terrain.is_position_on_water(surface, curr_pos, 8.0)  -- Check within 8 tiles
+			if is_near_water then
+				-- Waypoint is near water, keep it as-is to maintain safe path
+				table.insert(smoothed, {x = curr_pos.x, y = curr_pos.y, locked = false})
+				goto continue
+			end
 		end
 		
 		-- Calculate vectors
@@ -937,19 +934,12 @@ local function smooth_waypoints(waypoints, start_pos, surface, can_water, spider
 				smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
 			end
 			
-			-- Check if smoothing would cross water - if so, keep original waypoint
-			-- Don't smooth if it would cross more water than the spider can step over
-			if surface and not can_water and spider then
-				-- Check if the path from previous to smoothed position crosses water
-				if line_segment_crosses_water(surface, prev_pos, smoothed_pos, can_water, spider) then
-					-- Smoothed path would cross water, keep original waypoint
+			-- NEW: Check if smoothed position is near water - if so, use original waypoint
+			if surface and not can_water then
+				local smoothed_near_water = terrain.is_position_on_water(surface, smoothed_pos, 3.0)
+				if smoothed_near_water then
+					-- Smoothed position is near water, use original waypoint instead
 					smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
-				else
-					-- Also check path from smoothed position to next
-					if line_segment_crosses_water(surface, smoothed_pos, next_pos, can_water, spider) then
-						-- Smoothed path would cross water, keep original waypoint
-						smoothed_pos = {x = curr_pos.x, y = curr_pos.y, locked = false}
-					end
 				end
 			end
 			
@@ -1433,6 +1423,13 @@ local function adjust_waypoints_near_water(surface, waypoints, spider, can_water
 	for i, waypoint in ipairs(waypoints) do
 		local waypoint_pos = {x = waypoint.x, y = waypoint.y}
 		
+		-- PRESERVE existing locked status from filtering
+		if waypoint.locked then
+			-- Waypoint was already locked during filtering - keep it locked and don't move it
+			table.insert(adjusted, {x = waypoint_pos.x, y = waypoint_pos.y, locked = true})
+			goto continue
+		end
+		
 		-- Check if waypoint itself is directly on water (not just near it)
 		local exact_is_water = terrain.is_position_directly_on_water(surface, waypoint_pos)
 		
@@ -1520,9 +1517,11 @@ local function adjust_waypoints_near_water(surface, waypoints, spider, can_water
 				end
 			end
 		else
-			-- Waypoint is not near water, keep as-is
-			table.insert(adjusted, {x = waypoint_pos.x, y = waypoint_pos.y, locked = false})
+			-- Waypoint is not near water, keep as-is but preserve locked status
+			table.insert(adjusted, {x = waypoint_pos.x, y = waypoint_pos.y, locked = waypoint.locked or false})
 		end
+		
+		::continue::
 	end
 	
 	-- Second pass: apply locked status to waypoints that were marked
@@ -1588,7 +1587,6 @@ local function check_water_gap(surface, pos1, pos2, max_gap)
 	return gap_width > max_gap, gap_width
 end
 
--- Helper function: Filter waypoints that cross water gaps too wide
 local function filter_water_waypoints(surface, waypoints, spider_pos, can_traverse_water, spider)
 	if can_traverse_water then
 		return waypoints -- Spider can traverse water, no filtering needed
@@ -1603,16 +1601,48 @@ local function filter_water_waypoints(surface, waypoints, spider_pos, can_traver
 	for i, wp in ipairs(waypoints) do
 		local pos = wp.position or wp
 		
+		-- Check if waypoint is directly on water
+		local waypoint_on_water = terrain.is_position_directly_on_water(surface, pos)
+		
+		if waypoint_on_water then
+			-- Waypoint is directly on water - skip it and everything after
+			break
+		end
+		
+		-- NEW: Check if there's water in the 4 cardinal directions (N/S/E/W)
+		-- This catches waypoints on coastlines even if the waypoint itself is on land
+		local waypoint_near_water = false
+		local check_offsets = {
+			{x = 5, y = 0},   -- East
+			{x = -5, y = 0},  -- West
+			{x = 0, y = 5},   -- South
+			{x = 0, y = -5}   -- North
+		}
+		
+		for _, offset in ipairs(check_offsets) do
+			local check_pos = {x = pos.x + offset.x, y = pos.y + offset.y}
+			if terrain.is_position_directly_on_water(surface, check_pos) then
+				waypoint_near_water = true
+				break
+			end
+		end
+		
 		-- Check if segment to this waypoint crosses a water gap that's too wide
 		local gap_too_wide, gap_width = check_water_gap(surface, last_pos, pos, max_gap)
 		
 		if gap_too_wide then
-			--             string.format("%.1f", gap_width) .. " tiles (max: " .. max_gap .. ") - FILTERED")
 			-- Don't add this waypoint or any after it
 			break
 		end
 		
-		table.insert(filtered, wp)
+		-- If waypoint is near water in any cardinal direction, lock it
+		if waypoint_near_water then
+			-- Add waypoint but mark it as locked so it won't be smoothed
+			table.insert(filtered, {x = pos.x, y = pos.y, locked = true})
+		else
+			table.insert(filtered, wp)
+		end
+		
 		last_pos = pos
 	end
 	
@@ -1740,7 +1770,7 @@ function pathing.handle_path_result(path_result)
 	
 	-- Filter out waypoints that cross water gaps that are too wide
 	local filtered_waypoints = filter_water_waypoints(surface, waypoints, spider.position, can_traverse_water, spider)
-	
+
 	if #filtered_waypoints == 0 then
 		status_table.finished = status_table.finished + 1
 		storage.path_requests[path_result.id] = nil
@@ -1759,7 +1789,7 @@ function pathing.handle_path_result(path_result)
 	local processed_waypoints = {}
 	for i, wp in ipairs(filtered_waypoints) do
 		local pos = wp.position or wp
-		table.insert(processed_waypoints, {x = pos.x, y = pos.y, locked = false})
+		table.insert(processed_waypoints, {x = pos.x, y = pos.y, locked = wp.locked or false})
 	end
 	
 	-- Get spider capabilities
@@ -1920,10 +1950,6 @@ function pathing.handle_path_result(path_result)
 	end
 end
 
--- Public wrapper for line_segment_crosses_water
-function pathing.line_segment_crosses_water(surface, start_pos, end_pos, can_water, spider)
-	return line_segment_crosses_water(surface, start_pos, end_pos, can_water, spider)
-end
 
 -- Check if a path can be found from start_pos to end_pos for a spider
 -- Uses the same logic as Spidertron Enhancements mod

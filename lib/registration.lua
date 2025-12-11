@@ -62,7 +62,7 @@ function registration.update_requester_entity_tags(requester, requested_items)
 end
 
 function registration.register_provider(provider)
-	logging.info("Registration", "Registering provider chest " .. provider.unit_number .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
+	-- logging.info("Registration", "Registering provider chest " .. provider.unit_number .. " at (" .. math.floor(provider.position.x) .. "," .. math.floor(provider.position.y) .. ")")
 	storage.providers[provider.unit_number] = {
 		entity = provider,
 		allocated_items = {},
@@ -75,9 +75,9 @@ function registration.register_provider(provider)
 	beacon_assignment.assign_chest_to_nearest_beacon(provider, nil, "register_provider")
 	local provider_data = storage.providers[provider.unit_number]
 	if provider_data and provider_data.beacon_owner then
-		logging.info("Registration", "Provider chest " .. provider.unit_number .. " assigned to beacon " .. provider_data.beacon_owner)
+		-- logging.info("Registration", "Provider chest " .. provider.unit_number .. " assigned to beacon " .. provider_data.beacon_owner)
 	else
-		logging.warn("Registration", "Provider chest " .. provider.unit_number .. " NOT assigned to any beacon")
+		-- logging.warn("Registration", "Provider chest " .. provider.unit_number .. " NOT assigned to any beacon")
 	end
 end
 
@@ -154,6 +154,22 @@ function registration.register_requester(requester, tags)
 		end
 		-- Ensure entity reference is up to date
 		existing_data.entity = requester
+	end
+	
+	-- Log request registration
+	if next(requested_items) then
+		local request_list = {}
+		for item_name, item_data in pairs(requested_items) do
+			local count = type(item_data) == "number" and item_data or (item_data.count or 0)
+			if count > 0 then
+				table.insert(request_list, item_name .. " x" .. count)
+			end
+		end
+		-- if #request_list > 0 then
+		-- 	game.print("[REQUEST REGISTERED] Tick " .. game.tick .. ": Requester " .. requester.unit_number .. 
+		-- 		" at (" .. math.floor(requester.position.x) .. "," .. math.floor(requester.position.y) .. 
+		-- 		") - REGISTERED requests: " .. table.concat(request_list, ", "))
+		-- end
 	end
 	
 	-- Save requested_items to entity tags for blueprint support (ghosts can have tags)

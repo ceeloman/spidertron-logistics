@@ -26,7 +26,8 @@ function logging.log(level, category, message)
 	end
 	prefix = prefix .. "] "
 	
-	game.print(prefix .. message)
+	-- Use log() to write to log file instead of game.print() which shows on screen
+	log(prefix .. message)
 end
 
 function logging.debug(category, message)
