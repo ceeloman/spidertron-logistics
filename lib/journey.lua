@@ -268,13 +268,10 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	
 	-- If spider has a route, clear it (unless we're saving for resume)
 	if spider_data.route and not save_for_resume then
-		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " clearing route (save_for_resume=" .. tostring(save_for_resume) .. ", route_length=" .. #spider_data.route .. ", current_index=" .. (spider_data.current_route_index or "nil") .. ")")
 		spider_data.route = nil
 		spider_data.route_type = nil
 		spider_data.current_route_index = nil
 		spider_data.route_payload = nil  -- Clear route payload when route completes
-	elseif spider_data.route then
-		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " keeping route (save_for_resume=" .. tostring(save_for_resume) .. ")")
 	end
 	
 	local item = spider_data.payload_item
@@ -333,10 +330,10 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	
 	if was_dumping then
 		spider_data.just_finished_dumping = true
-		game.print("[DUMP_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished dumping, setting just_finished_dumping flag")
+		-- game.print("[DUMP_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished dumping, setting just_finished_dumping flag")
 	elseif was_delivering then
 		spider_data.just_finished_delivery = true
-		game.print("[DELIVERY_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished delivery, setting just_finished_delivery flag")
+		-- game.print("[DELIVERY_COMPLETE] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished delivery, setting just_finished_delivery flag")
 	end
 	
 	-- Check if we're about to assign a job immediately (after dumping or delivery)
@@ -358,7 +355,7 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	end
 	
 	if find_beacon and spider.valid and not will_get_immediate_job then
-		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to beacon (find_beacon=true, will_get_immediate_job=" .. tostring(will_get_immediate_job) .. ")")
+		-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to beacon (find_beacon=true, will_get_immediate_job=" .. tostring(will_get_immediate_job) .. ")")
 		
 		-- Try to find beacon with highest pickup count (most activity) within reasonable distance
 		-- This helps distribute spiders to the most active beacons
@@ -371,24 +368,24 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 		
 		if active_beacon and active_beacon.valid then
 			pathing.set_smart_destination(spider, active_beacon.position, active_beacon)
-			game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to active beacon at (" .. math.floor(active_beacon.position.x) .. "," .. math.floor(active_beacon.position.y) .. ")")
+			-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to active beacon at (" .. math.floor(active_beacon.position.x) .. "," .. math.floor(active_beacon.position.y) .. ")")
 		else
 			-- Fallback to nearest beacon if no active beacon found
 		local current_network = beacon_assignment.spidertron_network(beacon_starting_point)
 		if current_network and current_network.beacon and current_network.beacon.valid then
 			pathing.set_smart_destination(spider, current_network.beacon.position, current_network.beacon)
-			game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to network beacon at (" .. math.floor(current_network.beacon.position.x) .. "," .. math.floor(current_network.beacon.position.y) .. ")")
+			-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to network beacon at (" .. math.floor(current_network.beacon.position.x) .. "," .. math.floor(current_network.beacon.position.y) .. ")")
 		else
 			-- Fallback: find any beacon on the surface
 			local nearest_beacon = beacon_assignment.find_nearest_beacon(spider.surface, beacon_starting_point.position, spider.force, nil, "end_journey_fallback")
 			if nearest_beacon then
 				pathing.set_smart_destination(spider, nearest_beacon.position, nearest_beacon)
-				game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to nearest beacon at (" .. math.floor(nearest_beacon.position.x) .. "," .. math.floor(nearest_beacon.position.y) .. ")")
+				-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " pathing to nearest beacon at (" .. math.floor(nearest_beacon.position.x) .. "," .. math.floor(nearest_beacon.position.y) .. ")")
 			end
 		end
 		end
 	elseif find_beacon and will_get_immediate_job then
-		game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " SKIPPING beacon pathing - will get immediate job assignment")
+		-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " SKIPPING beacon pathing - will get immediate job assignment")
 	end
 	
 	-- Only clear targets if not saving for resume
@@ -451,7 +448,7 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 	
 	-- Set to idle (needed for resumption check)
 	spider_data.status = constants.idle
-	game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " status set to IDLE (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ")")
+	-- game.print("[END_JOURNEY] Tick " .. game.tick .. ": Spider " .. unit_number .. " status set to IDLE (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ")")
 	-- Clear retry counters
 	spider_data.pickup_retry_count = nil
 	spider_data.dropoff_retry_count = nil
@@ -468,11 +465,11 @@ function journey.end_journey(unit_number, find_beacon, save_for_resume)
 		spider_data.just_finished_delivery = nil
 		-- Set flag to trigger immediate job assignment on next tick
 		spider_data.needs_immediate_job_check = true
-		game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " set needs_immediate_job_check flag (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ", active=" .. tostring(spider_data.active) .. ")")
+		-- game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " set needs_immediate_job_check flag (was_dumping=" .. tostring(was_dumping) .. ", was_delivering=" .. tostring(was_delivering) .. ", active=" .. tostring(spider_data.active) .. ")")
 	elseif spider_data.just_finished_dumping or spider_data.just_finished_delivery then
 		spider_data.just_finished_dumping = nil
 		spider_data.just_finished_delivery = nil
-		game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished task but NOT setting immediate job check (valid=" .. tostring(spider.valid) .. ", active=" .. tostring(spider_data.active) .. ")")
+		-- game.print("[IMMEDIATE_JOB] Tick " .. game.tick .. ": Spider " .. unit_number .. " finished task but NOT setting immediate job check (valid=" .. tostring(spider.valid) .. ", active=" .. tostring(spider_data.active) .. ")")
 	end
 	
 	-- Note: saved_task is preserved if save_for_resume was true, allowing resumption

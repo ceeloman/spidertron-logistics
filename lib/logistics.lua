@@ -19,11 +19,11 @@ end
 -- Previously supported robot chests (storage-chest, active-provider-chest, passive-provider-chest) as providers.
 -- Removed due to performance concerns with scanning/caching.
 -- Future implementation should:
--- 1. Periodically scan chunks for robot chests (only where requesters exist)
--- 2. Check robot chests in batches (process N chests per cycle)
--- 3. Only cache robot chests that contain requested items
--- 4. Use efficient chunk-based scanning instead of full surface scans
--- 5. Update cache when robot chests are built/destroyed
+-- 1. Use logistic networks to find chests with requested items (check network.available_items)
+-- 2. Only cache robot chests that are in networks with requested items
+-- 3. Only cache chests that actually contain requested items
+-- 4. Update cache when chests are built/destroyed (incremental updates)
+-- 5. Periodically refresh cache by checking networks for requested items
 -- 
 -- Removed functions:
 -- - logistics.update_robot_chest_cache(chest) - Updated robot chest cache with inventory contents

@@ -1,10 +1,10 @@
 {
   "name": "spidertron-logistics",
-  "version": "3.0.0",
-  "title": "Spidertron Logistics System",
+  "version": "3.1.0",
+  "title": "Spidertron Logistics - 2.0 Fork",
   "author": "ceeloman",
-  "homepage": "https://github.com/notnotmelon/spidertron-logistics-system",
-  "description": "Adds Spidertron requester and provider depots. Allows you to create a fully automated Spidertron logistics system. UPS optimized.",
+  "homepage": "https://github.com/ceeloman/spidertron-logistics",
+  "description": "Adds Spidertron requester and provider depots. Allows you to create a fully automated Spidertron logistics system. Originally by notnotmelon, forked by ceeloman.",
   "factorio_version": "2.0",
   "dependencies": [
     "base",

@@ -291,12 +291,10 @@ function events_gui.register()
 								if not dump_success then
 									-- No storage chests available, trigger immediate job check instead of pathing to beacon
 									spider_data.needs_immediate_job_check = true
-									game.print("[ACTIVATION] Tick " .. game.tick .. ": Spider " .. vehicle.unit_number .. " activated, no items to dump, setting needs_immediate_job_check flag")
 								end
 							else
 								-- No items to dump, trigger immediate job check
 								spider_data.needs_immediate_job_check = true
-								game.print("[ACTIVATION] Tick " .. game.tick .. ": Spider " .. vehicle.unit_number .. " activated, no items to dump, setting needs_immediate_job_check flag")
 							end
 						end
 					-- Handle deactivation
@@ -849,12 +847,10 @@ function events_gui.register()
 								if not dump_success then
 									-- No storage chests available, trigger immediate job check instead of pathing to beacon
 									spider_data.needs_immediate_job_check = true
-									game.print("[ACTIVATION] Tick " .. game.tick .. ": Spider " .. vehicle.unit_number .. " activated, dump failed (no storage), setting needs_immediate_job_check flag")
 								end
 							else
 								-- No items to dump, trigger immediate job check instead of pathing to beacon
 								spider_data.needs_immediate_job_check = true
-								game.print("[ACTIVATION] Tick " .. game.tick .. ": Spider " .. vehicle.unit_number .. " activated, no items to dump, setting needs_immediate_job_check flag")
 							end
 						end
 					elseif not new_active and was_active then
@@ -1010,7 +1006,6 @@ function events_gui.register()
 									else
 										-- No items to dump, trigger immediate job check instead of pathing to beacon
 										spider_data.needs_immediate_job_check = true
-										game.print("[ACTIVATION] Tick " .. game.tick .. ": Spider " .. spider.unit_number .. " activated, no items to dump, setting needs_immediate_job_check flag")
 									end
 								end
 							elseif not new_active and was_active then
@@ -1093,16 +1088,43 @@ function events_gui.register()
 								end
 								
 								if spidertron and spidertron.valid then
-									-- Call neural connect function
-									local success, neural_connect = pcall(function()
-										return require("__neural-spider-control__.scripts.neural_connect")
-									end)
-									if success and neural_connect and neural_connect.connect_to_spidertron then
-										neural_connect.connect_to_spidertron({
-											player_index = player.index,
-											spidertron = spidertron
-										})
-									else
+									-- Try remote interface first (more reliable)
+									local connected = false
+									if remote.interfaces["neural-spider-control"] and 
+									   remote.interfaces["neural-spider-control"]["connect_to_vehicle"] then
+										local success, result = pcall(function()
+											remote.call("neural-spider-control", "connect_to_vehicle", {
+												player_index = player.index,
+												vehicle = spidertron
+											})
+										end)
+										if success then
+											connected = true
+										end
+									end
+									
+									-- Fallback to direct module require if remote interface failed
+									if not connected then
+										local success, neural_connect = pcall(function()
+											return require("__neural-spider-control__.scripts.neural_connect")
+										end)
+										if success and neural_connect and neural_connect.connect_to_spidertron then
+											local connect_success, connect_error = pcall(function()
+												neural_connect.connect_to_spidertron({
+													player_index = player.index,
+													spidertron = spidertron
+												})
+											end)
+											if connect_success then
+												connected = true
+											else
+												-- Log the actual error for debugging
+												game.print("Neural connect error: " .. tostring(connect_error))
+											end
+										end
+									end
+									
+									if not connected then
 										player.print("Failed to connect: Neural Spider Control mod may not be properly loaded.", {r=1, g=0.5, b=0})
 									end
 								else

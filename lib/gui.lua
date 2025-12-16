@@ -374,27 +374,14 @@ function gui.requester_gui(player_index)
 	status_flow.style.vertical_align = 'center'
 	status_flow.style.horizontal_spacing = 8
 	
-	-- Beacon status indicator (light green if assigned)
-	local beacon_status_flow = status_flow.add{
-		type = 'flow',
-		direction = 'horizontal'
-	}
-	beacon_status_flow.style.vertical_align = 'center'
-	beacon_status_flow.style.horizontal_spacing = 4
-	
-	local beacon_indicator = beacon_status_flow.add{
+	-- Beacon status indicator (light green if assigned) - tooltip shows status
+	local beacon_indicator = status_flow.add{
 		type = 'sprite',
 		name = 'beacon_status_indicator',
-		sprite = 'utility/status_not_working'
+		sprite = 'utility/status_not_working',
+		tooltip = 'No Beacon'
 	}
 	beacon_indicator.style.size = 20
-	
-	local beacon_status_label = beacon_status_flow.add{
-		type = 'label',
-		name = 'beacon_status_label',
-		caption = 'No Beacon'
-	}
-	beacon_status_label.style.font = 'default-semibold'
 	
 	-- Items delivered count
 	local items_delivered_label = status_flow.add{
@@ -410,14 +397,15 @@ function gui.requester_gui(player_index)
 	}
 	status_pusher.style.horizontally_stretchable = true
 	
-	-- Reconnect button
+	-- Reconnect beacon icon button (sprite-button for smaller width)
 	local reconnect_button = status_flow.add{
-		type = 'button',
+		type = 'sprite-button',
 		name = 'reconnect_beacon_button',
-		caption = 'Reconnect Beacon',
-		style = 'button'
+		sprite = 'entity/spidertron-logistic-beacon',
+		style = 'slot_button_in_shallow_frame',
+		tooltip = 'Force reconnection to nearest beacon'
 	}
-	reconnect_button.tooltip = 'Force reconnection to nearest beacon'
+	reconnect_button.style.size = 32
 	
 	-- Divider before item slots
 	local status_divider = content_frame.add{
@@ -675,7 +663,6 @@ function gui.requester_gui(player_index)
 		selected_slot_index = nil,
 		last_opened_requester = nil,
 		beacon_indicator = beacon_indicator,
-		beacon_status_label = beacon_status_label,
 		items_delivered_label = items_delivered_label,
 		reconnect_button = reconnect_button
 	}
@@ -696,10 +683,7 @@ function gui.update_requester_gui(gui_data, requester_data)
 			if beacon_data and beacon_data.entity and beacon_data.entity.valid then
 				-- Beacon is assigned and valid - show green indicator
 				gui_data.beacon_indicator.sprite = 'utility/status_working'
-				gui_data.beacon_indicator.style.tint = {r = 0.5, g = 1.0, b = 0.5}  -- Light green
-				if gui_data.beacon_status_label and gui_data.beacon_status_label.valid then
-					gui_data.beacon_status_label.caption = 'Beacon Assigned'
-				end
+				gui_data.beacon_indicator.tooltip = 'Beacon Assigned'
 			else
 				-- Beacon was assigned but is now invalid
 				has_beacon = false
@@ -710,10 +694,7 @@ function gui.update_requester_gui(gui_data, requester_data)
 		if not has_beacon then
 			-- No beacon assigned - show red indicator
 			gui_data.beacon_indicator.sprite = 'utility/status_not_working'
-			gui_data.beacon_indicator.style.tint = {r = 1.0, g = 0.3, b = 0.3}  -- Light red
-			if gui_data.beacon_status_label and gui_data.beacon_status_label.valid then
-				gui_data.beacon_status_label.caption = 'No Beacon'
-			end
+			gui_data.beacon_indicator.tooltip = 'No Beacon'
 		end
 	end
 	
@@ -1174,288 +1155,9 @@ end
 
 -- Create or update player GUI toolbar (in player GUI left) when holding spidertron remote
 function gui.add_player_gui_toolbar(player)
-	if not player or not player.valid then return nil end
-	
-	-- Check if player is holding a spidertron remote
-	local selected_spiders = player.spidertron_remote_selection
-	local has_remote = selected_spiders ~= nil and #selected_spiders > 0
-	
-	local left_gui = player.gui.left
-	if not left_gui then return nil end
-	
-	local toolbar_name = MOD_NAME .. "_player_gui_toolbar"
-	local existing_toolbar = left_gui[toolbar_name]
-	
-	if not has_remote then
-		-- Remove toolbar if player is not holding remote
-		if existing_toolbar and existing_toolbar.valid then
-			existing_toolbar.destroy()
-		end
-		return nil
-	end
-	
-	-- Filter out invalid spiders
-	local valid_spiders = {}
-	for _, spider in ipairs(selected_spiders) do
-		if spider and spider.valid and spider.type == "spider-vehicle" then
-			table.insert(valid_spiders, spider)
-		end
-	end
-	
-	if #valid_spiders == 0 then
-		-- No valid spiders, remove toolbar
-		if existing_toolbar and existing_toolbar.valid then
-			existing_toolbar.destroy()
-		end
-		return nil
-	end
-	
-	-- Check if any spider has logistics active (for toggle button state)
-	local any_active = false
-	local any_has_autopilot = false
-	for _, spider in ipairs(valid_spiders) do
-		local spider_data = storage.spiders[spider.unit_number]
-		if spider_data and spider_data.active ~= false then
-			any_active = true
-		end
-		if spider.autopilot_destinations and #spider.autopilot_destinations > 0 then
-			any_has_autopilot = true
-		end
-	end
-	
-	-- Create or update toolbar
-	local toolbar
-	if existing_toolbar and existing_toolbar.valid then
-		toolbar = existing_toolbar
-		-- Verify structure is correct
-		local button_frame = toolbar["button_frame"]
-		if not button_frame or not button_frame.valid then
-			toolbar.destroy()
-			toolbar = nil
-		else
-			local button_flow = button_frame["button_flow"]
-			if not button_flow or not button_flow.valid then
-				toolbar.destroy()
-				toolbar = nil
-			end
-		end
-	end
-	
-	if not toolbar or not toolbar.valid then
-		-- Create new toolbar in player GUI top
-		local frame_style = "frame"
-		local inner_frame_style = "inside_shallow_frame"
-		
-		local style_mods = {
-			horizontally_stretchable = false,
-			vertically_stretchable = false,
-			top_padding = 3,
-			bottom_padding = 6,
-			left_padding = 6,
-			right_padding = 6,
-		}
-		
-		local refs = {}
-		toolbar, refs = glib.add(left_gui, {
-			args = {
-				type = "frame",
-				name = toolbar_name,
-				style = frame_style
-			},
-			ref = "toolbar",
-			style_mods = style_mods,
-			children = {{
-				args = {
-					type = "frame",
-					name = "button_frame",
-					direction = "vertical",
-					style = inner_frame_style
-				},
-				ref = "button_frame",
-				style_mods = {
-					vertically_stretchable = false
-				},
-				children = {{
-					args = {
-						type = "flow",
-						name = "button_flow",
-						direction = "vertical"
-					},
-					ref = "button_flow"
-				}}
-			}}
-		}, refs)
-		
-		if not toolbar or not toolbar.valid then
-			return nil
-		end
-	end
-	
-	-- Navigate to button_flow
-	local button_frame = toolbar["button_frame"]
-	if not button_frame or not button_frame.valid then return nil end
-	
-	local button_flow = button_frame["button_flow"]
-	if not button_flow or not button_flow.valid then return nil end
-	
-	-- Button names
-	local toggle_name = MOD_NAME .. "_player_toggle"
-	local dump_name = MOD_NAME .. "_player_dump"
-	local remote_name = MOD_NAME .. "_player_remote"
-	local repath_name = MOD_NAME .. "_player_repath"
-	
-	-- Clear existing buttons (we'll recreate them)
-	for _, child in ipairs(button_flow.children) do
-		if child.valid then
-			child.destroy()
-		end
-	end
-	
-	-- Create remote button (first)
-	local remote_button = glib.add(button_flow, {
-		args = {
-			type = "sprite-button",
-			name = remote_name,
-			style = "slot_sized_button",
-			sprite = "item/spidertron-remote",
-			tooltip = {"gui.spidertron-remote-tooltip"}
-		},
-		ref = "remote"
-	}, {})
-	
-	-- Create toggle button (second)
-	local toggle_button = glib.add(button_flow, {
-		args = {
-			type = "sprite-button",
-			name = toggle_name,
-			style = "tool_button",
-			sprite = "utility/logistic_network_panel_black",
-			tooltip = {"gui.spidertron-logistics-inactive"}
-		},
-		ref = "toggle",
-		style_mods = {
-			width = 40,
-			height = 40
-		}
-	}, {})
-	
-	if toggle_button and toggle_button.valid then
-		toggle_button.tags = {is_active = any_active}
-		gui.update_toggle_button_color(toggle_button, any_active)
-	end
-	
-	-- Create dump button (third)
-	local dump_button = glib.add(button_flow, {
-		args = {
-			type = "sprite-button",
-			name = dump_name,
-			style = "slot_sized_button",
-			sprite = "utility.trash",
-			tooltip = {"gui.spidertron-dump-tooltip"}
-		},
-		ref = "dump"
-	}, {})
-	
-	-- Create repath button (fourth) - only if any spider has autopilot queue
-	if any_has_autopilot then
-		local repath_button = glib.add(button_flow, {
-			args = {
-				type = "sprite-button",
-				name = repath_name,
-				style = "slot_sized_button",
-				sprite = "utility/no_path_icon",
-				tooltip = {"gui.spidertron-repath-tooltip"}
-			},
-			ref = "repath"
-		}, {})
-	end
-	
-	-- Add neural connect button if neural-spider-control mod is installed
-	if script.active_mods["neural-spider-control"] and #valid_spiders > 0 then
-		local first_spider = valid_spiders[1]
-		if first_spider and first_spider.valid then
-			-- Check if spidertron already has an active neural connection
-			local has_active_connection = false
-			local neural_disconnect = nil
-			local success, module = pcall(function()
-				return require("__neural-spider-control__.scripts.neural_disconnect")
-			end)
-			if success and module then
-				neural_disconnect = module
-				has_active_connection = neural_disconnect.vehicle_has_active_connection(first_spider)
-			end
-			
-			-- Only show button if no active connection
-			if not has_active_connection then
-				local neural_connect_name = MOD_NAME .. "_player_neural_connect"
-				local neural_button = glib.add(button_flow, {
-					args = {
-						type = "sprite-button",
-						name = neural_connect_name,
-						style = "slot_sized_button",
-						sprite = "neural-connection-sprite",
-						tooltip = "Neural Connect"
-					},
-					ref = "neural_connect"
-				}, {})
-				
-				-- Store spidertron unit number and surface in button tags
-				if neural_button and neural_button.valid then
-					neural_button.tags = {
-						unit_number = first_spider.unit_number,
-						surface_index = first_spider.surface.index
-					}
-				end
-			end
-			
-			-- Check if spidertron has a dummy engineer (active or orphaned)
-			local has_dummy_engineer = false
-			local dummy_engineer = nil
-			if neural_disconnect then
-				-- Check for orphaned engineer
-				dummy_engineer = neural_disconnect.find_orphaned_engineer_for_vehicle(first_spider)
-				if dummy_engineer then
-					has_dummy_engineer = true
-				else
-					-- Check for active dummy engineer in storage
-					if storage.neural_spider_control and storage.neural_spider_control.dummy_engineers then
-						for player_index, dummy_data in pairs(storage.neural_spider_control.dummy_engineers) do
-							local engineer = type(dummy_data) == "table" and dummy_data.entity or dummy_data
-							if engineer and engineer.valid and engineer.vehicle == first_spider then
-								dummy_engineer = engineer
-								has_dummy_engineer = true
-								break
-							end
-						end
-					end
-				end
-			end
-			
-			-- Add check character inventory button if dummy engineer is present
-			if has_dummy_engineer and dummy_engineer then
-				local character_inventory_name = MOD_NAME .. "_player_check_character_inventory"
-				local character_button = glib.add(button_flow, {
-					args = {
-						type = "sprite-button",
-						name = character_inventory_name,
-						style = "slot_sized_button",
-						sprite = "utility/player_force_icon",
-						tooltip = "Check Character Inventory"
-					},
-					ref = "character_inventory"
-				}, {})
-				
-				-- Store engineer unit number in button tags
-				if character_button and character_button.valid then
-					character_button.tags = {
-						engineer_unit_number = dummy_engineer.unit_number
-					}
-				end
-			end
-		end
-	end
-	
-	return toolbar
+	-- Use shared toolbar utility to get or create player GUI toolbar
+	-- Buttons are registered via shared_toolbar.register_player_gui_button() in setup
+	return shared_toolbar.get_or_create_player_gui_toolbar(player)
 end
 
 function gui.close_item_selector_gui(gui_data)

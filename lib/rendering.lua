@@ -231,21 +231,25 @@ function rendering.draw_status_text(spider, spider_data)
 		return
 	end
 	
-	-- Track last drawn status to only redraw when status changes
+	-- Track last drawn status and payload_item to only redraw when they change
 	-- This prevents constantly recreating status text every tick
-	if spider_data.last_drawn_status == spider_data.status and spider_data.status_text and spider_data.status_text.valid then
-		-- Status hasn't changed and text still exists, don't redraw
+	local status_changed = spider_data.last_drawn_status ~= spider_data.status
+	local item_changed = spider_data.last_drawn_payload_item ~= (spider_data.payload_item or "")
+	
+	if not status_changed and not item_changed and spider_data.status_text and spider_data.status_text.valid then
+		-- Status and item haven't changed and text still exists, don't redraw
 		return
 	end
 	
-	-- Destroy old status text if it exists (status changed or text invalid)
+	-- Destroy old status text if it exists (status/item changed or text invalid)
 	if spider_data.status_text and spider_data.status_text.valid then
 		spider_data.status_text.destroy()
 		spider_data.status_text = nil
 	end
 	
-	-- Update last drawn status
+	-- Update last drawn status and payload_item
 	spider_data.last_drawn_status = spider_data.status
+	spider_data.last_drawn_payload_item = spider_data.payload_item or ""
 	
 	local status_text = ""
 	local text_color = {r = 1.0, g = 1.0, b = 1.0}  -- White color
@@ -283,6 +287,8 @@ function rendering.draw_status_text(spider, spider_data)
 	end
 	
 	-- Draw the status text
+	-- time_to_live is set to a very long duration so text persists until status changes
+	-- The text will be destroyed and recreated when status changes (handled by the check above)
 	spider_data.status_text = draw_text{
 		text = status_text,
 		surface = spider.surface,
@@ -291,7 +297,7 @@ function rendering.draw_status_text(spider, spider_data)
 		color = text_color,
 		scale = 1.0,
 		font = "default-game",
-		time_to_live = 60,  -- Update every 60 ticks (1 second)
+		time_to_live = 3600,  -- 60 seconds - long enough to persist until status changes
 		alignment = "center"
 	}
 end

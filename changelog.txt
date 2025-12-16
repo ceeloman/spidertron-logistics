@@ -1,12 +1,18 @@
 ---------------------------------------------------------------------------------------------------
-Version: 3.3.0
+Version: 3.0.2
   Breaking Changes:
     - Removed support for robot logistic chests (storage-chest, active-provider-chest, passive-provider-chest) as providers
       - This feature was removed due to performance concerns with scanning and caching robot chests across the surface
       - Only custom spidertron logistics provider chests can now be used as providers
       - Robot chests may be re-added in the future with optimized chunk-based scanning and caching
+  GUI & User Experience:
+    - Enhanced GUI with new event handlers for improved spidertron management
+  Code Structure:
+    - Modularized code structure for better maintainability and clarity
+  Other:
+    - Updated license information to reflect new authorship
 ---------------------------------------------------------------------------------------------------
-Version: 3.2.0
+Version: 3.0.1
   Features:
     - Added manual dump button in GUI: players can now manually trigger item dumping for spidertrons
     - Enhanced spidertron activation and deactivation: improved logic for GUI switch state handling with better responsiveness
@@ -51,7 +57,7 @@ Version: 3.1.0
   Other:
     - Added visual error feedback for pathfinding failures
 ---------------------------------------------------------------------------------------------------
-Version: 3.0.0
+Version: 2.0.0
   Features:
     - Changed requester and provider chest recipes to use basic materials (steel-plate, electronic-circuit, advanced-circuit) instead of requester-chest/storage-chest and spidertron-remote
     - Removed spidertron-remote requirement from logistic beacon recipe
